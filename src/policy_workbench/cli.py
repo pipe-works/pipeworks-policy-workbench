@@ -33,11 +33,38 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional canonical policy root directory override",
     )
 
-    sync_parser = subparsers.add_parser("sync", help="Sync policy files across repos")
+    sync_parser = subparsers.add_parser("sync", help="Plan/apply policy sync across repos")
     sync_parser.add_argument(
         "--root",
         default=None,
-        help="Reserved for future sync root override behavior",
+        help="Optional source policy root override (takes precedence over mirror map source)",
+    )
+    sync_parser.add_argument(
+        "--map",
+        default=None,
+        help="Optional mirror map YAML path override (default: config/mirror_map.yaml)",
+    )
+    sync_parser.add_argument(
+        "--format",
+        dest="output_format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text)",
+    )
+    sync_parser.add_argument(
+        "--include-unchanged",
+        action="store_true",
+        help="Include unchanged files in output listings",
+    )
+    sync_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply create/update changes instead of dry-run planning",
+    )
+    sync_parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Required safety confirmation when using --apply",
     )
 
     serve_parser = subparsers.add_parser("serve", help="Run local policy workbench web server")
@@ -74,7 +101,16 @@ def main(argv: list[str] | None = None) -> int:
         return run_validate(root=args.root, out=sys.stdout, err=sys.stderr)
 
     if args.command == "sync":
-        return run_sync(out=sys.stdout)
+        return run_sync(
+            root=args.root,
+            map_path=args.map,
+            output_format=args.output_format,
+            apply=args.apply,
+            yes=args.yes,
+            include_unchanged=args.include_unchanged,
+            out=sys.stdout,
+            err=sys.stderr,
+        )
 
     if args.command == "serve":
         run_server(host=args.host, requested_port=args.port)
