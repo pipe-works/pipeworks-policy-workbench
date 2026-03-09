@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipeworks-policy-workbench"
+version = "0.1.0"
+description = "Cross-repository policy authoring, validation, and sync tooling for Pipe-Works"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
+authors = [{name = "aapark"}]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "pytest-cov>=5.0.0",
+  "black==26.1.0",
+  "ruff>=0.14.0",
+  "mypy>=1.19.0",
+  "pre-commit>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pipe-works/pipeworks-policy-workbench"
+Repository = "https://github.com/pipe-works/pipeworks-policy-workbench.git"
+Issues = "https://github.com/pipe-works/pipeworks-policy-workbench/issues"
+
+[project.scripts]
+pw-policy = "policy_workbench.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+exclude = ["tests*", "docs*", "examples*", "*__pycache__*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = [
+  "unit: isolated deterministic tests",
+  "integration: integration boundary tests",
+  "slow: materially slower tests",
+  "requires_model: tests requiring heavy model assets",
+]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
