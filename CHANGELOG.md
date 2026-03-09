@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.2...pipeworks-policy-workbench-v0.1.3) (2026-03-09)
+
+
+### Features
+
+* **web:** add policy editor UI and sync APIs ([e1702fc](https://github.com/pipe-works/pipeworks-policy-workbench/commit/e1702fce3754cf9ac991284de28fe56d99075423))
+* **web:** add policy editor UI and sync APIs ([51fae2e](https://github.com/pipe-works/pipeworks-policy-workbench/commit/51fae2e1a1e28adcded4bc8c3297670d58362a19))
+
 ## [0.1.2](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.1...pipeworks-policy-workbench-v0.1.2) (2026-03-09)
 
 
