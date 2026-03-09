@@ -128,37 +128,34 @@ def build_uvicorn_log_config(prefix: str = DEFAULT_LOG_PREFIX) -> dict[str, Any]
 def create_app() -> Callable[..., Any]:
     """Create the ASGI app instance.
 
-    The primary implementation uses FastAPI when available. If FastAPI is not
-    installed yet, this function returns a tiny standards-compliant ASGI app so
-    local ``pw-policy serve`` remains usable during early scaffolding.
+    The primary implementation delegates to ``policy_workbench.web_app``.
+    If web dependencies are not installed yet, this function returns a tiny
+    standards-compliant ASGI app so ``pw-policy serve`` remains usable.
     """
 
     try:
-        from fastapi import FastAPI  # type: ignore[import-not-found]
+        from .web_app import create_web_app
     except ImportError:
+        return _create_fallback_app()
 
-        async def fallback_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
-            """Fallback ASGI app returning plain-text health output."""
+    return cast(Callable[..., Any], create_web_app())
 
-            if scope["type"] != "http":
-                return
 
-            body = b"policy-workbench alive\n"
-            headers = [(b"content-type", b"text/plain; charset=utf-8")]
-            await send({"type": "http.response.start", "status": 200, "headers": headers})
-            await send({"type": "http.response.body", "body": body})
+def _create_fallback_app() -> Callable[..., Any]:
+    """Return minimal fallback ASGI app used when FastAPI stack is unavailable."""
 
-        return fallback_app
+    async def fallback_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        """Fallback ASGI app returning plain-text health output."""
 
-    app = FastAPI(title="Pipeworks Policy Workbench", version="0.1.0")
+        if scope["type"] != "http":
+            return
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        """Simple readiness endpoint for local runtime checks."""
+        body = b"policy-workbench alive\n"
+        headers = [(b"content-type", b"text/plain; charset=utf-8")]
+        await send({"type": "http.response.start", "status": 200, "headers": headers})
+        await send({"type": "http.response.body", "body": body})
 
-        return {"status": "ok"}
-
-    return cast(Callable[..., Any], app)
+    return fallback_app
 
 
 def run_server(
