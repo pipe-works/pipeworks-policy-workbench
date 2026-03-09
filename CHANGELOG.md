@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.1...pipeworks-policy-workbench-v0.1.2) (2026-03-09)
+
+
+### Features
+
+* **sync:** add phase-2 mirror-map planning and safe apply ([1208e82](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1208e82c40162a27cc3f2058e5225115d349f049))
+* **sync:** add phase-2 mirror-map planning and safe apply ([29c87b6](https://github.com/pipe-works/pipeworks-policy-workbench/commit/29c87b638c5ffafb217f524f619f6bd7abf22cd5))
+
 ## [0.1.1](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.0...pipeworks-policy-workbench-v0.1.1) (2026-03-09)
 
 
