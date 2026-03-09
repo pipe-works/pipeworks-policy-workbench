@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Policy Workbench</title>
+  <link rel="stylesheet" href="/static/pipe-works-base.css" />
+  <link rel="stylesheet" href="/static/workbench.css" />
+</head>
+<body>
+<header class="app-header">
+  <span class="app-header__title">Policy Workbench</span>
+  <span class="app-header__subtitle">Pipe-Works · Canonical Policy Editor · v{{ app_version }}</span>
+</header>
+
+<main class="app-grid workbench-grid" aria-label="Policy Workbench">
+  <section class="panel panel--left" aria-label="Policy Tree Browser">
+    <div class="panel-header-row">
+      <h2 class="panel__heading">Policy Tree</h2>
+      <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
+    </div>
+    <div id="tree-summary" class="meta-line">Loading tree...</div>
+    <div class="list-shell">
+      <ul id="tree-list" class="tree-list"></ul>
+    </div>
+  </section>
+
+  <section class="panel panel--centre" aria-label="Raw File Editor">
+    <div class="panel-header-row">
+      <h2 class="panel__heading">Raw Editor</h2>
+      <span id="editor-path" class="badge badge--muted">No file selected</span>
+    </div>
+
+    <textarea
+      id="file-editor"
+      class="code-editor editor-area"
+      spellcheck="false"
+      autocomplete="off"
+      placeholder="Select a policy file from the left panel to begin editing."
+    ></textarea>
+
+    <div class="editor-actions">
+      <button id="btn-save-file" class="btn btn--primary" type="button">Save File</button>
+      <button id="btn-reload-file" class="btn btn--secondary" type="button">Reload File</button>
+    </div>
+  </section>
+
+  <section class="panel panel--right" aria-label="Validation and Sync Impact">
+    <h2 class="panel__heading">Validation</h2>
+    <div class="panel-header-row">
+      <button id="btn-run-validation" class="btn btn--secondary" type="button">Run Validation</button>
+      <span id="validation-counts" class="meta-line">errors=0 warnings=0 info=0</span>
+    </div>
+    <div class="list-shell list-shell--compact">
+      <ul id="validation-list" class="report-list"></ul>
+    </div>
+
+    <hr class="divider" />
+
+    <h2 class="panel__heading">Sync Impact</h2>
+    <div class="panel-header-row">
+      <button id="btn-build-sync" class="btn btn--secondary" type="button">Build Dry-Run Plan</button>
+      <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
+    </div>
+    <div id="sync-counts" class="meta-line">create=0 update=0 unchanged=0 delete_candidate=0</div>
+    <div class="list-shell list-shell--compact">
+      <ul id="sync-list" class="report-list"></ul>
+    </div>
+  </section>
+</main>
+
+<footer class="status-bar" aria-live="polite">
+  <span id="status-text" class="status-bar__text">Ready.</span>
+</footer>
+
+<script type="module" src="/static/workbench.js"></script>
+</body>
+</html>
