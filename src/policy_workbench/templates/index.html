@@ -11,6 +11,12 @@
 <header class="app-header">
   <span class="app-header__title">Policy Workbench</span>
   <span class="app-header__subtitle">Pipe-Works · Canonical Policy Editor · v{{ app_version }}</span>
+  <button
+    id="theme-toggle"
+    class="theme-toggle"
+    type="button"
+    aria-label="Toggle dark and light theme"
+  >☀ Light</button>
 </header>
 
 <main class="app-grid workbench-grid" aria-label="Policy Workbench">
@@ -19,7 +25,18 @@
       <h2 class="panel__heading">Policy Tree</h2>
       <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
     </div>
-    <div id="tree-summary" class="meta-line">Loading tree...</div>
+    <div class="tree-summary-shell" aria-live="polite" aria-label="Policy tree counts">
+      <div class="tree-summary-metrics">
+        <span class="tree-summary-metric">
+          <span class="tree-summary-metric__label">Directories</span>
+          <span id="tree-summary-directories" class="tree-summary-metric__value">0</span>
+        </span>
+        <span class="tree-summary-metric">
+          <span class="tree-summary-metric__label">Files</span>
+          <span id="tree-summary-files" class="tree-summary-metric__value">0</span>
+        </span>
+      </div>
+    </div>
     <div class="list-shell">
       <ul id="tree-list" class="tree-list"></ul>
     </div>
@@ -63,7 +80,7 @@
       <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
     </div>
     <div id="sync-counts" class="meta-line">create=0 update=0 unchanged=0 delete_candidate=0</div>
-    <div class="list-shell list-shell--compact">
+    <div class="list-shell list-shell--compact list-shell--sync">
       <ul id="sync-list" class="report-list"></ul>
     </div>
   </section>
@@ -71,6 +88,7 @@
 
 <footer class="status-bar" aria-live="polite">
   <span id="status-text" class="status-bar__text">Ready.</span>
+  <span id="status-source" class="status-bar__text status-bar__source">source: --</span>
 </footer>
 
 <script type="module" src="/static/workbench.js"></script>

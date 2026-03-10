@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
-from .models import IssueLevel
+from .models import IssueLevel, PolicyTreeSnapshot
 from .pathing import resolve_policy_root
 from .sync_models import SyncAction, SyncActionType, SyncPlan
 from .sync_planner import build_sync_plan
@@ -20,6 +20,8 @@ from .web_models import (
     ValidationIssueResponse,
     ValidationResponse,
 )
+
+_EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml"}
 
 
 def resolve_source_root_for_web(
@@ -57,11 +59,19 @@ def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
             has_prompt_text=bool((artifact.prompt_text or "").strip()),
         )
         for artifact in snapshot.artifacts
+        if _is_supported_editor_file(artifact.relative_path)
     ]
+
+    # The tree sidebar is intentionally scoped to editable policy files only.
+    directory_set = {"policies"}
+    for artifact in artifacts:
+        parent = Path(artifact.relative_path).parent.as_posix()
+        if parent and parent != ".":
+            directory_set.add(parent)
 
     return PolicyTreeResponse(
         source_root=str(snapshot.root),
-        directories=snapshot.directories,
+        directories=sorted(directory_set),
         artifacts=artifacts,
     )
 
@@ -69,6 +79,7 @@ def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
 def read_policy_file(source_root: Path, relative_path: str) -> str:
     """Read one policy file by relative path with traversal protection."""
 
+    _validate_supported_editor_path(relative_path)
     file_path = _resolve_file_under_root(source_root=source_root, relative_path=relative_path)
     if not file_path.exists():
         raise FileNotFoundError(f"Policy file not found: {relative_path}")
@@ -81,6 +92,7 @@ def read_policy_file(source_root: Path, relative_path: str) -> str:
 def write_policy_file(source_root: Path, relative_path: str, content: str) -> int:
     """Write one policy file under source root and return bytes written."""
 
+    _validate_supported_editor_path(relative_path)
     file_path = _resolve_file_under_root(source_root=source_root, relative_path=relative_path)
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
@@ -91,7 +103,7 @@ def build_validation_payload(source_root: Path) -> ValidationResponse:
     """Build serialized validation payload for right-panel reporting."""
 
     snapshot = build_policy_tree_snapshot(source_root)
-    report = validate_snapshot(snapshot)
+    report = validate_snapshot(_filter_snapshot_to_supported_files(snapshot))
 
     issues = [
         ValidationIssueResponse(
@@ -122,7 +134,9 @@ def build_sync_payload(
 
     mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
     mirror_map = load_mirror_map(mirror_map_path)
-    plan = build_sync_plan(source_root=source_root, mirror_map=mirror_map)
+    plan = _filter_sync_plan_to_supported_files(
+        build_sync_plan(source_root=source_root, mirror_map=mirror_map)
+    )
 
     actions = [
         _serialize_action(action)
@@ -147,7 +161,8 @@ def build_sync_plan_for_apply(
 
     mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
     mirror_map = load_mirror_map(mirror_map_path)
-    return build_sync_plan(source_root=source_root, mirror_map=mirror_map)
+    plan = build_sync_plan(source_root=source_root, mirror_map=mirror_map)
+    return _filter_sync_plan_to_supported_files(plan)
 
 
 def _resolve_file_under_root(source_root: Path, relative_path: str) -> Path:
@@ -187,3 +202,40 @@ def _counts_for_plan(plan: SyncPlan) -> dict[str, int]:
         SyncActionType.UNCHANGED.value: counts[SyncActionType.UNCHANGED],
         SyncActionType.DELETE_CANDIDATE.value: counts[SyncActionType.DELETE_CANDIDATE],
     }
+
+
+def _is_supported_editor_file(relative_path: str) -> bool:
+    """Return whether ``relative_path`` should be visible/editable in the web editor."""
+
+    return Path(relative_path).suffix.lower() in _EDITOR_FILE_SUFFIXES
+
+
+def _validate_supported_editor_path(relative_path: str) -> None:
+    """Raise ``ValueError`` when web editor is asked to read/write unsupported files."""
+
+    if not _is_supported_editor_file(relative_path):
+        raise ValueError("Only .txt, .yaml, and .yml policy files are supported by the web editor")
+
+
+def _filter_snapshot_to_supported_files(snapshot: PolicyTreeSnapshot) -> PolicyTreeSnapshot:
+    """Return snapshot narrowed to files supported by the web workbench editor."""
+
+    supported_artifacts = [
+        artifact
+        for artifact in snapshot.artifacts
+        if _is_supported_editor_file(artifact.relative_path)
+    ]
+    return PolicyTreeSnapshot(
+        root=snapshot.root,
+        directories=snapshot.directories,
+        artifacts=supported_artifacts,
+    )
+
+
+def _filter_sync_plan_to_supported_files(plan: SyncPlan) -> SyncPlan:
+    """Return sync plan narrowed to files supported by the web workbench editor."""
+
+    supported_actions = [
+        action for action in plan.actions if _is_supported_editor_file(action.relative_path)
+    ]
+    return SyncPlan(source_root=plan.source_root, map_path=plan.map_path, actions=supported_actions)
