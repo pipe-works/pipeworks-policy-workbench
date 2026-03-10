@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.6...pipeworks-policy-workbench-v0.1.7) (2026-03-10)
+
+
+### Fixes
+
+* **ui:** improve sync impact clarity and hash feedback ([db47497](https://github.com/pipe-works/pipeworks-policy-workbench/commit/db474978ee49bf54d100ec51389f509e824b6b8e))
+* **ui:** improve sync impact clarity and hash feedback ([f6d860b](https://github.com/pipe-works/pipeworks-policy-workbench/commit/f6d860ba4ff6ca091bb5483bf1fc66086d29dc85))
+
 ## [0.1.6](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.5...pipeworks-policy-workbench-v0.1.6) (2026-03-10)
 
 
