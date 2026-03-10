@@ -81,6 +81,44 @@ class SyncPlanResponse(BaseModel):
     actions: list[SyncActionResponse]
 
 
+class HashDirectoryResponse(BaseModel):
+    """One directory hash summary from canonical policy snapshot payload."""
+
+    path: str
+    file_count: int
+    hash: str
+
+
+class HashCanonicalResponse(BaseModel):
+    """Canonical mud-server hash snapshot metadata used by Step 1 UI."""
+
+    hash_version: str
+    canonical_root: str
+    generated_at: str
+    file_count: int
+    root_hash: str
+    directories: list[HashDirectoryResponse]
+
+
+class HashTargetStatusResponse(BaseModel):
+    """Per-target hash alignment and drift counters for Step 1 UI."""
+
+    name: str
+    root_hash: str
+    matches_canonical: bool | None
+    missing_count: int
+    different_count: int
+    target_only_count: int
+
+
+class HashStatusResponse(BaseModel):
+    """Top-level hash alignment status across canonical and mirror targets."""
+
+    status: str
+    canonical: HashCanonicalResponse | None
+    targets: list[HashTargetStatusResponse]
+
+
 class SyncCompareVariantResponse(BaseModel):
     """One source/target column entry for side-by-side sync comparison."""
 

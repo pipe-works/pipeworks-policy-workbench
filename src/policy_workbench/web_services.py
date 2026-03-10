@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections import Counter
-from pathlib import Path
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from pipeworks_ipc.hashing import compute_payload_hash
 
@@ -15,6 +20,9 @@ from .sync_planner import build_sync_plan
 from .tree_model import build_policy_tree_snapshot
 from .validators import validate_snapshot
 from .web_models import (
+    HashCanonicalResponse,
+    HashStatusResponse,
+    HashTargetStatusResponse,
     PolicyArtifactResponse,
     PolicyTreeResponse,
     SyncActionResponse,
@@ -26,6 +34,22 @@ from .web_models import (
 )
 
 _EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml"}
+_HASH_VERSION = "policy_tree_hash_v1"
+_DEFAULT_CANONICAL_HASH_URL = "http://127.0.0.1:8000/api/policy/hash-snapshot"
+_CANONICAL_HASH_URL_ENV = "PW_POLICY_HASH_SNAPSHOT_URL"
+
+try:
+    import pipeworks_ipc.hashing as ipc_hashing
+except ImportError:  # pragma: no cover - import path is expected in normal runtime
+    ipc_hashing = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyHashEntry:
+    """One normalized local policy file entry used for hash calculations."""
+
+    relative_path: str
+    content_hash: str
 
 
 def resolve_source_root_for_web(
@@ -243,6 +267,199 @@ def build_sync_compare_payload(
         unique_variant_count=len(signatures_seen),
         variants=variants,
     )
+
+
+def build_hash_status_payload(
+    *,
+    source_root: Path,
+    map_path_override: str | None,
+    canonical_snapshot_url_override: str | None = None,
+) -> HashStatusResponse:
+    """Build hash alignment status against canonical mud-server hash snapshot."""
+
+    mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
+    mirror_map = load_mirror_map(mirror_map_path)
+
+    canonical_entries = _collect_local_policy_entries(source_root)
+    canonical_by_path = {entry.relative_path: entry for entry in canonical_entries}
+    canonical_paths = set(canonical_by_path.keys())
+    canonical_snapshot: HashCanonicalResponse | None = None
+
+    try:
+        canonical_snapshot = _fetch_canonical_hash_snapshot(
+            _resolve_canonical_hash_snapshot_url(canonical_snapshot_url_override)
+        )
+    except ValueError:
+        canonical_snapshot = None
+
+    target_statuses: list[HashTargetStatusResponse] = []
+    for target in sorted(mirror_map.targets, key=lambda current: current.name):
+        target_entries = _collect_local_policy_entries(target.root)
+        target_by_path = {entry.relative_path: entry for entry in target_entries}
+
+        missing_count = 0
+        different_count = 0
+        projected_entries: list[_PolicyHashEntry] = []
+
+        for relative_path in sorted(canonical_paths):
+            source_entry = canonical_by_path[relative_path]
+            target_entry = target_by_path.get(relative_path)
+            if target_entry is None:
+                missing_count += 1
+                projected_entries.append(
+                    _PolicyHashEntry(
+                        relative_path=relative_path,
+                        content_hash=_compute_missing_content_hash(relative_path),
+                    )
+                )
+                continue
+
+            projected_entries.append(target_entry)
+            if target_entry.content_hash != source_entry.content_hash:
+                different_count += 1
+
+        target_only_count = sum(1 for path in target_by_path if path not in canonical_paths)
+        target_root_hash = _compute_tree_hash(projected_entries)
+        matches_canonical = (
+            target_root_hash == canonical_snapshot.root_hash if canonical_snapshot else None
+        )
+
+        target_statuses.append(
+            HashTargetStatusResponse(
+                name=target.name,
+                root_hash=target_root_hash,
+                matches_canonical=matches_canonical,
+                missing_count=missing_count,
+                different_count=different_count,
+                target_only_count=target_only_count,
+            )
+        )
+
+    if canonical_snapshot is None:
+        status = "canonical_unavailable"
+    else:
+        status = "ok" if all(target.matches_canonical for target in target_statuses) else "drift"
+
+    return HashStatusResponse(
+        status=status,
+        canonical=canonical_snapshot,
+        targets=target_statuses,
+    )
+
+
+def _resolve_canonical_hash_snapshot_url(url_override: str | None) -> str:
+    """Resolve canonical hash snapshot URL from override, env var, or default."""
+
+    candidate = url_override or os.getenv(_CANONICAL_HASH_URL_ENV) or _DEFAULT_CANONICAL_HASH_URL
+    normalized = (candidate or "").strip()
+    if not normalized:
+        raise ValueError("Canonical hash snapshot URL must not be empty")
+    return normalized
+
+
+def _fetch_canonical_hash_snapshot(url: str) -> HashCanonicalResponse:
+    """Fetch and validate canonical mud-server hash snapshot payload."""
+
+    request = Request(url=url, headers={"Accept": "application/json"})
+    try:
+        with urlopen(request, timeout=5.0) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to fetch canonical hash snapshot from {url}: {exc}") from exc
+
+    validated = HashCanonicalResponse.model_validate(payload)
+    if not isinstance(validated, HashCanonicalResponse):
+        raise ValueError(f"Canonical hash snapshot from {url} did not match expected schema")
+    return validated
+
+
+def _collect_local_policy_entries(policy_root: Path) -> list[_PolicyHashEntry]:
+    """Collect deterministic policy file hash entries from ``policy_root``."""
+
+    entries: list[_PolicyHashEntry] = []
+    for path in sorted(policy_root.rglob("*")):
+        if not path.is_file() or path.suffix.lower() not in _EDITOR_FILE_SUFFIXES:
+            continue
+
+        relative_path = _normalize_relative_path(path.relative_to(policy_root).as_posix())
+        entries.append(
+            _PolicyHashEntry(
+                relative_path=relative_path,
+                content_hash=_compute_file_hash(relative_path, path.read_bytes()),
+            )
+        )
+
+    return entries
+
+
+def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
+    """Compute deterministic policy file hash via IPC helper with fallback."""
+
+    helper = getattr(ipc_hashing, "compute_policy_file_hash", None) if ipc_hashing else None
+    if callable(helper):
+        return str(helper(relative_path, content_bytes))
+
+    normalized_path = _normalize_relative_path(relative_path)
+    return str(
+        compute_payload_hash(
+            {
+                "hash_version": _HASH_VERSION,
+                "relative_path": normalized_path,
+                "content_bytes_hex": content_bytes.hex(),
+            }
+        )
+    )
+
+
+def _compute_tree_hash(entries: list[_PolicyHashEntry]) -> str:
+    """Compute deterministic policy tree hash via IPC helper with fallback."""
+
+    helper = getattr(ipc_hashing, "compute_policy_tree_hash", None) if ipc_hashing else None
+    entry_cls = getattr(ipc_hashing, "PolicyHashEntry", None) if ipc_hashing else None
+    if callable(helper) and entry_cls is not None:
+        ipc_entries = [
+            entry_cls(relative_path=entry.relative_path, content_hash=entry.content_hash)
+            for entry in entries
+        ]
+        return str(helper(ipc_entries))
+
+    payload_entries = [
+        {
+            "relative_path": _normalize_relative_path(entry.relative_path),
+            "content_hash": entry.content_hash,
+        }
+        for entry in entries
+    ]
+    payload_entries.sort(key=lambda item: str(item["relative_path"]))
+    return str(compute_payload_hash({"hash_version": _HASH_VERSION, "entries": payload_entries}))
+
+
+def _compute_missing_content_hash(relative_path: str) -> str:
+    """Build deterministic hash marker for missing canonical-managed files."""
+
+    normalized_path = _normalize_relative_path(relative_path)
+    return str(
+        compute_payload_hash(
+            {
+                "hash_version": _HASH_VERSION,
+                "relative_path": normalized_path,
+                "missing": True,
+            }
+        )
+    )
+
+
+def _normalize_relative_path(relative_path: str) -> str:
+    """Normalize a policy-relative path and reject traversal-like values."""
+
+    as_posix = PurePosixPath(relative_path.replace("\\", "/")).as_posix()
+    if as_posix.startswith("../") or "/../" in f"/{as_posix}":
+        raise ValueError(f"Policy relative path must not traverse upwards: {relative_path!r}")
+
+    normalized = as_posix.lstrip("./")
+    if normalized in {"", "."}:
+        raise ValueError("Policy relative path must not be empty")
+    return normalized
 
 
 def _resolve_file_under_root(source_root: Path, relative_path: str) -> Path:

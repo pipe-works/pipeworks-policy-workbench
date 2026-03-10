@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from types import SimpleNamespace
+from urllib.error import URLError
 
+import pytest
 from fastapi.testclient import TestClient
 
+from policy_workbench import web_app as web_app_module
+from policy_workbench import web_services
 from policy_workbench.web_app import create_web_app
+from policy_workbench.web_models import HashCanonicalResponse
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -139,6 +146,261 @@ def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["counts"] == {"error": 0, "warning": 0, "info": 0}
     assert payload["issues"] == []
+
+
+def test_hash_status_endpoint_returns_drift_counts_for_mismatched_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Hash status endpoint should report canonical drift and per-target counters."""
+
+    client, source_root, _ = _build_client(tmp_path)
+    source_entries = web_services._collect_local_policy_entries(source_root)
+    canonical_root_hash = web_services._compute_tree_hash(source_entries)
+    canonical_snapshot = HashCanonicalResponse(
+        hash_version="policy_tree_hash_v1",
+        canonical_root=str(source_root),
+        generated_at="2026-03-10T12:00:00Z",
+        file_count=len(source_entries),
+        root_hash=canonical_root_hash,
+        directories=[],
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: canonical_snapshot,
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "drift"
+    assert payload["canonical"]["root_hash"] == canonical_root_hash
+    assert len(payload["targets"]) == 1
+    target = payload["targets"][0]
+    assert target["name"] == "mirror-target"
+    assert target["matches_canonical"] is False
+    assert target["missing_count"] == 1
+    assert target["different_count"] == 1
+    assert target["target_only_count"] == 1
+
+
+def test_hash_status_endpoint_excludes_target_only_from_match_digest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Target-only files should not force hash mismatch when canonical paths align."""
+
+    client, source_root, target_root = _build_client(tmp_path)
+    _write_text(target_root / "image" / "prompts" / "scene.txt", "new scene prompt")
+    _write_text(
+        target_root / "image" / "blocks" / "species" / "goblin_v1.yaml",
+        "text: |\n  A canonical goblin prompt.\n",
+    )
+
+    source_entries = web_services._collect_local_policy_entries(source_root)
+    canonical_root_hash = web_services._compute_tree_hash(source_entries)
+    canonical_snapshot = HashCanonicalResponse(
+        hash_version="policy_tree_hash_v1",
+        canonical_root=str(source_root),
+        generated_at="2026-03-10T12:00:00Z",
+        file_count=len(source_entries),
+        root_hash=canonical_root_hash,
+        directories=[],
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: canonical_snapshot,
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    target = payload["targets"][0]
+    assert target["matches_canonical"] is True
+    assert target["missing_count"] == 0
+    assert target["different_count"] == 0
+    assert target["target_only_count"] == 1
+
+
+def test_hash_status_endpoint_handles_canonical_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Canonical fetch failure should return canonical_unavailable status, not HTTP failure."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: (_ for _ in ()).throw(ValueError("canonical endpoint unavailable")),
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "canonical_unavailable"
+    assert payload["canonical"] is None
+    assert payload["targets"][0]["matches_canonical"] is None
+
+
+def test_hash_status_endpoint_returns_400_when_hash_status_builder_raises(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Hash-status API should convert service-layer errors into HTTP 400."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_app_module,
+        "build_hash_status_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("hash status failure")),
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 400
+    assert "hash status failure" in response.json()["detail"]
+
+
+def test_resolve_canonical_hash_snapshot_url_precedence_and_empty_guard(
+    monkeypatch,
+) -> None:
+    """Canonical URL resolver should honor override/env/default precedence."""
+
+    monkeypatch.delenv("PW_POLICY_HASH_SNAPSHOT_URL", raising=False)
+    assert web_services._resolve_canonical_hash_snapshot_url("http://override.local/api") == (
+        "http://override.local/api"
+    )
+
+    monkeypatch.setenv("PW_POLICY_HASH_SNAPSHOT_URL", "http://env.local/api")
+    assert web_services._resolve_canonical_hash_snapshot_url(None) == "http://env.local/api"
+
+    monkeypatch.delenv("PW_POLICY_HASH_SNAPSHOT_URL", raising=False)
+    assert web_services._resolve_canonical_hash_snapshot_url(None) == (
+        "http://127.0.0.1:8000/api/policy/hash-snapshot"
+    )
+
+    monkeypatch.setattr(web_services, "_DEFAULT_CANONICAL_HASH_URL", "")
+    with pytest.raises(ValueError, match="must not be empty"):
+        web_services._resolve_canonical_hash_snapshot_url("   ")
+
+
+def test_fetch_canonical_hash_snapshot_handles_success_and_error_paths(monkeypatch) -> None:
+    """Canonical snapshot fetch helper should validate both payload and transport errors."""
+
+    class _FakeHttpResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self) -> bytes:
+            return self._payload
+
+    valid_payload = {
+        "hash_version": "policy_tree_hash_v1",
+        "canonical_root": "/tmp/source",
+        "generated_at": "2026-03-10T12:00:00Z",
+        "file_count": 1,
+        "root_hash": "abc123",
+        "directories": [],
+    }
+    monkeypatch.setattr(
+        web_services,
+        "urlopen",
+        lambda _request, timeout=5.0: _FakeHttpResponse(json.dumps(valid_payload).encode("utf-8")),
+    )
+    snapshot = web_services._fetch_canonical_hash_snapshot("http://canonical.local/api")
+    assert snapshot.root_hash == "abc123"
+
+    monkeypatch.setattr(
+        web_services,
+        "urlopen",
+        lambda _request, timeout=5.0: (_ for _ in ()).throw(URLError("unreachable")),
+    )
+    with pytest.raises(ValueError, match="Unable to fetch canonical hash snapshot"):
+        web_services._fetch_canonical_hash_snapshot("http://canonical.local/api")
+
+    monkeypatch.setattr(
+        web_services,
+        "urlopen",
+        lambda _request, timeout=5.0: _FakeHttpResponse(json.dumps(valid_payload).encode("utf-8")),
+    )
+    monkeypatch.setattr(
+        web_services.HashCanonicalResponse,
+        "model_validate",
+        staticmethod(lambda _payload: {}),
+    )
+    with pytest.raises(ValueError, match="did not match expected schema"):
+        web_services._fetch_canonical_hash_snapshot("http://canonical.local/api")
+
+
+def test_service_hash_helpers_cover_path_guards_and_io_edges(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Service hash helper utilities should enforce path/IO guardrails."""
+
+    assert web_services._normalize_relative_path(r"image\prompts\scene.txt") == (
+        "image/prompts/scene.txt"
+    )
+    with pytest.raises(ValueError, match="must not be empty"):
+        web_services._normalize_relative_path("")
+    with pytest.raises(ValueError, match="must not traverse upwards"):
+        web_services._normalize_relative_path("../scene.txt")
+
+    assert web_services._read_optional_text(None) is None
+    assert web_services._read_optional_text(tmp_path / "missing.txt") is None
+
+    directory_path = tmp_path / "directory"
+    directory_path.mkdir(parents=True, exist_ok=True)
+    assert web_services._read_optional_text(directory_path) is None
+
+    existing_file = tmp_path / "broken.txt"
+    existing_file.write_text("content", encoding="utf-8")
+    monkeypatch.setattr(
+        Path,
+        "read_text",
+        lambda self, encoding="utf-8": (_ for _ in ()).throw(OSError("boom")),
+    )
+    with pytest.raises(ValueError, match="Unable to read text for diff"):
+        web_services._read_optional_text(existing_file)
+
+
+def test_service_hash_helpers_use_ipc_helper_branches(monkeypatch) -> None:
+    """Hash helper methods should use IPC implementations when available."""
+
+    class _FakePolicyHashEntry:
+        def __init__(self, *, relative_path: str, content_hash: str) -> None:
+            self.relative_path = relative_path
+            self.content_hash = content_hash
+
+    fake_hashing = SimpleNamespace(
+        PolicyHashEntry=_FakePolicyHashEntry,
+        compute_policy_file_hash=lambda relative_path, _bytes: f"file::{relative_path}",
+        compute_policy_tree_hash=lambda entries: f"tree::{len(entries)}",
+    )
+    monkeypatch.setattr(web_services, "ipc_hashing", fake_hashing)
+
+    assert web_services._compute_file_hash("image/prompts/scene.txt", b"content") == (
+        "file::image/prompts/scene.txt"
+    )
+
+    entries = [
+        web_services._PolicyHashEntry(relative_path="image/prompts/scene.txt", content_hash="h1"),
+        web_services._PolicyHashEntry(relative_path="image/prompts/other.txt", content_hash="h2"),
+    ]
+    assert web_services._compute_tree_hash(entries) == "tree::2"
 
 
 def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Path) -> None:
