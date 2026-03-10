@@ -1,22 +1,34 @@
 const dom = {
+  workbenchGrid: document.getElementById("workbench-grid"),
+  panelTree: document.getElementById("panel-tree"),
   treeSummaryDirectories: document.getElementById("tree-summary-directories"),
   treeSummaryFiles: document.getElementById("tree-summary-files"),
   treeList: document.getElementById("tree-list"),
   editorPath: document.getElementById("editor-path"),
   fileEditor: document.getElementById("file-editor"),
+  btnToggleTree: document.getElementById("btn-toggle-tree"),
+  btnExpandTree: document.getElementById("btn-expand-tree"),
   themeToggle: document.getElementById("theme-toggle"),
   validationCounts: document.getElementById("validation-counts"),
   validationList: document.getElementById("validation-list"),
   hashStatusOverall: document.getElementById("hash-status-overall"),
+  hashStateTableBody: document.getElementById("hash-state-table-body"),
   hashCanonicalRoot: document.getElementById("hash-canonical-root"),
+  hashCanonicalUrl: document.getElementById("hash-canonical-url"),
+  hashCanonicalError: document.getElementById("hash-canonical-error"),
   hashGeneratedAt: document.getElementById("hash-generated-at"),
   hashFileCount: document.getElementById("hash-file-count"),
+  hashFileCountRow: document.getElementById("hash-file-count-row"),
   hashTargets: document.getElementById("hash-targets"),
   syncCounts: document.getElementById("sync-counts"),
   syncPlanState: document.getElementById("sync-plan-state"),
   syncReviewedState: document.getElementById("sync-reviewed-state"),
   syncApplyHint: document.getElementById("sync-apply-hint"),
   syncList: document.getElementById("sync-list"),
+  syncUnchangedBody: document.getElementById("sync-unchanged-body"),
+  syncUnchangedTotal: document.getElementById("sync-unchanged-total"),
+  syncTabs: Array.from(document.querySelectorAll("[data-sync-tab]")),
+  syncPanels: Array.from(document.querySelectorAll(".sync-step[data-sync-step]")),
   syncDiffModal: document.getElementById("sync-diff-modal"),
   syncDiffBackdrop: document.getElementById("sync-diff-backdrop"),
   syncDiffClose: document.getElementById("sync-diff-close"),
@@ -54,15 +66,20 @@ const state = {
   currentPlanHasActionable: false,
   reviewedActionKeys: new Set(),
   currentPlanActionCount: 0,
+  latestSyncPlan: null,
+  hashCopyFeedbackTimer: null,
   compareContentElements: [],
   syncedCompareIds: new Set(),
   isSyncScrolling: false,
+  treeCollapsed: false,
+  activeSyncStep: "build",
 };
 
 const THEME_STORAGE_KEY = "ppw-theme";
 const HASH_REFRESH_LABEL = "Refresh Hash Snapshot";
 const SYNC_REFRESH_LABEL = "Refresh Dry-Run Plan";
 const SYNC_APPLY_LABEL = "Apply Create/Update";
+const SYNC_STEP_KEYS = new Set(["build", "review", "apply"]);
 const SYNC_ACTION_SORT_ORDER = {
   update: 0,
   create: 1,
@@ -79,6 +96,54 @@ function setEditorReadOnlyMode(isReadOnly) {
   dom.fileEditor.classList.toggle("is-readonly", isReadOnly);
   dom.btnSaveFile.disabled = isReadOnly;
   dom.btnReloadFile.disabled = isReadOnly;
+}
+
+function setTreeCollapsed(isCollapsed) {
+  state.treeCollapsed = Boolean(isCollapsed);
+  if (dom.workbenchGrid) {
+    dom.workbenchGrid.classList.toggle("is-tree-collapsed", state.treeCollapsed);
+  }
+
+  if (dom.btnToggleTree) {
+    dom.btnToggleTree.textContent = state.treeCollapsed ? "▶" : "◀";
+    dom.btnToggleTree.setAttribute("aria-expanded", state.treeCollapsed ? "false" : "true");
+    dom.btnToggleTree.setAttribute(
+      "aria-label",
+      state.treeCollapsed ? "Expand Policy Tree panel" : "Collapse Policy Tree panel"
+    );
+    dom.btnToggleTree.title = state.treeCollapsed
+      ? "Expand Policy Tree panel"
+      : "Collapse Policy Tree panel";
+  }
+
+  if (dom.btnExpandTree) {
+    dom.btnExpandTree.hidden = !state.treeCollapsed;
+  }
+}
+
+function setActiveSyncStep(stepKey) {
+  const normalized = SYNC_STEP_KEYS.has(stepKey) ? stepKey : "build";
+  state.activeSyncStep = normalized;
+
+  for (const tab of dom.syncTabs) {
+    const isActive = tab.dataset.syncTab === normalized;
+    tab.classList.toggle("is-active", isActive);
+    tab.setAttribute("aria-selected", isActive ? "true" : "false");
+    tab.tabIndex = isActive ? 0 : -1;
+  }
+
+  for (const panel of dom.syncPanels) {
+    panel.hidden = panel.dataset.syncStep !== normalized;
+  }
+}
+
+function wireSyncTabs() {
+  for (const tab of dom.syncTabs) {
+    tab.addEventListener("click", () => {
+      const tabKey = tab.dataset.syncTab || "build";
+      setActiveSyncStep(tabKey);
+    });
+  }
 }
 
 function formatLocalDateTime(dateValue) {
@@ -198,10 +263,10 @@ function formatHashShort(hashText) {
   if (!hashText) {
     return "--";
   }
-  if (hashText.length <= 20) {
+  if (hashText.length <= 16) {
     return hashText;
   }
-  return `${hashText.slice(0, 10)}…${hashText.slice(-8)}`;
+  return `${hashText.slice(0, 8)}…${hashText.slice(-6)}`;
 }
 
 function formatCanonicalGeneratedAt(rawValue) {
@@ -286,6 +351,33 @@ function renderHashTargets(targets) {
   }
 }
 
+function renderHashTargetFileCountRows(targets) {
+  if (!dom.hashStateTableBody || !dom.hashFileCountRow) {
+    return;
+  }
+
+  for (const row of dom.hashStateTableBody.querySelectorAll(".hash-target-file-row")) {
+    row.remove();
+  }
+
+  let insertAfter = dom.hashFileCountRow;
+  for (const target of targets) {
+    const row = document.createElement("tr");
+    row.className = "hash-target-file-row";
+
+    const labelCell = document.createElement("th");
+    labelCell.scope = "row";
+    labelCell.textContent = `${target.name} files`;
+
+    const valueCell = document.createElement("td");
+    valueCell.textContent = `${target.file_count}`;
+
+    row.append(labelCell, valueCell);
+    insertAfter.insertAdjacentElement("afterend", row);
+    insertAfter = row;
+  }
+}
+
 function buildHashMetaLine(text) {
   const line = document.createElement("span");
   line.className = "hash-target-card__line";
@@ -316,6 +408,24 @@ function renderHashStatus(payload) {
       : "--";
   }
 
+  if (dom.hashCanonicalUrl) {
+    dom.hashCanonicalUrl.textContent = payload.canonical_url || "--";
+    dom.hashCanonicalUrl.title = payload.canonical_url || "";
+  }
+
+  if (dom.hashCanonicalError) {
+    if (payload.canonical_error) {
+      dom.hashCanonicalError.textContent = payload.canonical_error;
+      dom.hashCanonicalError.className = "hash-detail hash-detail--err";
+    } else if (payload.canonical) {
+      dom.hashCanonicalError.textContent = "canonical snapshot available";
+      dom.hashCanonicalError.className = "hash-detail hash-detail--ok";
+    } else {
+      dom.hashCanonicalError.textContent = "--";
+      dom.hashCanonicalError.className = "hash-detail hash-detail--muted";
+    }
+  }
+
   if (dom.hashFileCount) {
     dom.hashFileCount.textContent = payload.canonical ? `${payload.canonical.file_count}` : "--";
   }
@@ -324,7 +434,12 @@ function renderHashStatus(payload) {
     dom.btnCopyHash.disabled = !payload.canonical;
   }
 
-  renderHashTargets(payload.targets || []);
+  const targets = payload.targets || [];
+  renderHashTargetFileCountRows(targets);
+  renderHashTargets(targets);
+  if (state.latestSyncPlan) {
+    renderUnchangedBreakdown(state.latestSyncPlan);
+  }
 }
 
 async function refreshHashStatus() {
@@ -538,6 +653,7 @@ function renderValidation(report) {
 }
 
 function renderSyncPlan(plan) {
+  state.latestSyncPlan = plan;
   const visibleCounts = {
     create: 0,
     update: 0,
@@ -551,6 +667,7 @@ function renderSyncPlan(plan) {
   }
 
   renderSyncSummaryChips(plan, visibleCounts);
+  renderUnchangedBreakdown(plan);
   pruneReviewedActionKeys(plan.actions);
 
   state.syncPlanBuiltAt = new Date();
@@ -749,9 +866,65 @@ function renderSyncSummaryChips(plan, visibleCounts) {
   dom.syncCounts.append(
     buildSyncSummaryPill(`Updates ${visibleCounts.update}`, "info"),
     buildSyncSummaryPill(`Creates ${visibleCounts.create}`, "ok"),
-    buildSyncSummaryPill(`Target-only ${visibleCounts.target_only}`, "err"),
-    buildSyncSummaryPill(`Unchanged ${plan.counts.unchanged}`, "muted")
+    buildSyncSummaryPill(`Target-only ${visibleCounts.target_only}`, "err")
   );
+}
+
+function renderUnchangedBreakdown(plan) {
+  if (!dom.syncUnchangedBody || !dom.syncUnchangedTotal) {
+    return;
+  }
+
+  dom.syncUnchangedBody.innerHTML = "";
+
+  const canonicalCount = state.hashStatus?.canonical?.file_count;
+  const targets = state.hashStatus?.targets || [];
+  const totalFromPlan = Number(plan?.counts?.unchanged);
+
+  if (!Number.isInteger(canonicalCount) || !targets.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 3;
+    cell.textContent = !Number.isInteger(canonicalCount)
+      ? "Refresh Step 1 hash snapshot to populate per-target unchanged arithmetic."
+      : "No target directories available.";
+    row.appendChild(cell);
+    dom.syncUnchangedBody.appendChild(row);
+    dom.syncUnchangedTotal.textContent = Number.isInteger(totalFromPlan) ? `${totalFromPlan}` : "--";
+    return;
+  }
+
+  let derivedTotal = 0;
+  const sortedTargets = [...targets].sort((left, right) => left.name.localeCompare(right.name));
+  for (const target of sortedTargets) {
+    const missing = Number(target.missing_count || 0);
+    const different = Number(target.different_count || 0);
+    const unchanged = Math.max(0, canonicalCount - missing - different);
+    derivedTotal += unchanged;
+
+    const row = document.createElement("tr");
+
+    const targetCell = document.createElement("td");
+    targetCell.textContent = target.name;
+
+    const arithmeticCell = document.createElement("td");
+    arithmeticCell.textContent = `${canonicalCount} - ${missing} - ${different}`;
+
+    const unchangedCell = document.createElement("td");
+    unchangedCell.textContent = `${unchanged}`;
+
+    row.append(targetCell, arithmeticCell, unchangedCell);
+    dom.syncUnchangedBody.appendChild(row);
+  }
+
+  if (Number.isInteger(totalFromPlan) && totalFromPlan !== derivedTotal) {
+    dom.syncUnchangedTotal.textContent = `${totalFromPlan} (calc ${derivedTotal})`;
+    return;
+  }
+
+  dom.syncUnchangedTotal.textContent = Number.isInteger(totalFromPlan)
+    ? `${totalFromPlan}`
+    : `${derivedTotal}`;
 }
 
 function buildSyncSummaryPill(text, tone) {
@@ -1225,6 +1398,9 @@ async function applySyncPlan() {
 
 async function init() {
   wireThemeToggle();
+  wireSyncTabs();
+  setActiveSyncStep("build");
+  setTreeCollapsed(false);
   setHashButtonBusy(false);
   if (dom.btnCopyHash) {
     dom.btnCopyHash.disabled = true;
@@ -1260,6 +1436,17 @@ async function init() {
     });
   }
 
+  if (dom.btnToggleTree) {
+    dom.btnToggleTree.addEventListener("click", () => {
+      setTreeCollapsed(!state.treeCollapsed);
+    });
+  }
+  if (dom.btnExpandTree) {
+    dom.btnExpandTree.addEventListener("click", () => {
+      setTreeCollapsed(false);
+    });
+  }
+
   dom.btnRefreshTree.addEventListener("click", loadTree);
   if (dom.btnRefreshHash) {
     dom.btnRefreshHash.addEventListener("click", refreshHashStatus);
@@ -1274,8 +1461,26 @@ async function init() {
 
       try {
         await navigator.clipboard.writeText(canonicalHash);
+        dom.btnCopyHash.textContent = "Copied";
+        dom.btnCopyHash.classList.add("is-copied");
+        if (state.hashCopyFeedbackTimer) {
+          clearTimeout(state.hashCopyFeedbackTimer);
+        }
+        state.hashCopyFeedbackTimer = setTimeout(() => {
+          dom.btnCopyHash.textContent = "Copy";
+          dom.btnCopyHash.classList.remove("is-copied");
+          state.hashCopyFeedbackTimer = null;
+        }, 1200);
         setStatus("Canonical hash copied.");
       } catch {
+        dom.btnCopyHash.textContent = "Retry";
+        if (state.hashCopyFeedbackTimer) {
+          clearTimeout(state.hashCopyFeedbackTimer);
+        }
+        state.hashCopyFeedbackTimer = setTimeout(() => {
+          dom.btnCopyHash.textContent = "Copy";
+          state.hashCopyFeedbackTimer = null;
+        }, 1200);
         setStatus("Unable to copy canonical hash.");
       }
     });

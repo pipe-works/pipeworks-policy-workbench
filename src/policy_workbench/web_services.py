@@ -284,13 +284,15 @@ def build_hash_status_payload(
     canonical_by_path = {entry.relative_path: entry for entry in canonical_entries}
     canonical_paths = set(canonical_by_path.keys())
     canonical_snapshot: HashCanonicalResponse | None = None
+    canonical_url: str | None = None
+    canonical_error: str | None = None
 
     try:
-        canonical_snapshot = _fetch_canonical_hash_snapshot(
-            _resolve_canonical_hash_snapshot_url(canonical_snapshot_url_override)
-        )
-    except ValueError:
+        canonical_url = _resolve_canonical_hash_snapshot_url(canonical_snapshot_url_override)
+        canonical_snapshot = _fetch_canonical_hash_snapshot(canonical_url)
+    except ValueError as exc:
         canonical_snapshot = None
+        canonical_error = str(exc)
 
     target_statuses: list[HashTargetStatusResponse] = []
     for target in sorted(mirror_map.targets, key=lambda current: current.name):
@@ -327,6 +329,7 @@ def build_hash_status_payload(
         target_statuses.append(
             HashTargetStatusResponse(
                 name=target.name,
+                file_count=len(target_entries),
                 root_hash=target_root_hash,
                 matches_canonical=matches_canonical,
                 missing_count=missing_count,
@@ -343,6 +346,8 @@ def build_hash_status_payload(
     return HashStatusResponse(
         status=status,
         canonical=canonical_snapshot,
+        canonical_url=canonical_url,
+        canonical_error=canonical_error,
         targets=target_statuses,
     )
 

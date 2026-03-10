@@ -177,9 +177,12 @@ def test_hash_status_endpoint_returns_drift_counts_for_mismatched_target(
     payload = response.json()
     assert payload["status"] == "drift"
     assert payload["canonical"]["root_hash"] == canonical_root_hash
+    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
+    assert payload["canonical_error"] is None
     assert len(payload["targets"]) == 1
     target = payload["targets"][0]
     assert target["name"] == "mirror-target"
+    assert target["file_count"] == 3
     assert target["matches_canonical"] is False
     assert target["missing_count"] == 1
     assert target["different_count"] == 1
@@ -220,7 +223,10 @@ def test_hash_status_endpoint_excludes_target_only_from_match_digest(
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
+    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
+    assert payload["canonical_error"] is None
     target = payload["targets"][0]
+    assert target["file_count"] == 4
     assert target["matches_canonical"] is True
     assert target["missing_count"] == 0
     assert target["different_count"] == 0
@@ -246,6 +252,9 @@ def test_hash_status_endpoint_handles_canonical_unavailable(
     payload = response.json()
     assert payload["status"] == "canonical_unavailable"
     assert payload["canonical"] is None
+    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
+    assert "canonical endpoint unavailable" in payload["canonical_error"]
+    assert payload["targets"][0]["file_count"] == 3
     assert payload["targets"][0]["matches_canonical"] is None
 
 
