@@ -8,6 +8,7 @@ const dom = {
   validationCounts: document.getElementById("validation-counts"),
   validationList: document.getElementById("validation-list"),
   syncCounts: document.getElementById("sync-counts"),
+  syncPlanState: document.getElementById("sync-plan-state"),
   syncList: document.getElementById("sync-list"),
   syncDiffModal: document.getElementById("sync-diff-modal"),
   syncDiffBackdrop: document.getElementById("sync-diff-backdrop"),
@@ -35,12 +36,17 @@ const state = {
   directoriesCount: 0,
   currentComparePath: "",
   currentCompareRelativePath: "",
+  syncPlanBuiltAt: null,
+  syncPlanIsStale: true,
+  syncRequestInFlight: false,
   compareContentElements: [],
   syncedCompareIds: new Set(),
   isSyncScrolling: false,
 };
 
 const THEME_STORAGE_KEY = "ppw-theme";
+const SYNC_REFRESH_LABEL = "Refresh Dry-Run Plan";
+const SYNC_APPLY_LABEL = "Apply Create/Update";
 
 function setStatus(message) {
   dom.statusText.textContent = message;
@@ -51,6 +57,60 @@ function setEditorReadOnlyMode(isReadOnly) {
   dom.fileEditor.classList.toggle("is-readonly", isReadOnly);
   dom.btnSaveFile.disabled = isReadOnly;
   dom.btnReloadFile.disabled = isReadOnly;
+}
+
+function formatLocalDateTime(dateValue) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(dateValue);
+}
+
+function updateSyncPlanStateLine() {
+  if (!dom.syncPlanState) {
+    return;
+  }
+
+  if (!state.syncPlanBuiltAt) {
+    dom.syncPlanState.textContent = "plan: not generated yet";
+    return;
+  }
+
+  const builtText = formatLocalDateTime(state.syncPlanBuiltAt);
+  if (state.syncPlanIsStale) {
+    dom.syncPlanState.textContent = `plan: stale | last generated ${builtText}`;
+    return;
+  }
+
+  dom.syncPlanState.textContent = `plan: fresh | generated ${builtText}`;
+}
+
+function markSyncPlanStale() {
+  state.syncPlanIsStale = true;
+  updateSyncPlanStateLine();
+}
+
+function setSyncButtonsBusy(isBusy, mode = "") {
+  state.syncRequestInFlight = isBusy;
+
+  if (!dom.btnBuildSync || !dom.btnApplySync) {
+    return;
+  }
+
+  dom.btnBuildSync.disabled = isBusy;
+  dom.btnApplySync.disabled = isBusy;
+  dom.btnBuildSync.textContent = isBusy && mode === "build" ? "Refreshing..." : SYNC_REFRESH_LABEL;
+  dom.btnApplySync.textContent = isBusy && mode === "apply" ? "Applying..." : SYNC_APPLY_LABEL;
+  dom.btnBuildSync.setAttribute("aria-busy", isBusy && mode === "build" ? "true" : "false");
+  dom.btnApplySync.setAttribute("aria-busy", isBusy && mode === "apply" ? "true" : "false");
+}
+
+async function fetchSyncPlan(includeUnchanged = false) {
+  return fetchJson(`/api/sync-plan?include_unchanged=${includeUnchanged}`);
 }
 
 function wireThemeToggle() {
@@ -236,9 +296,27 @@ function renderValidation(report) {
 }
 
 function renderSyncPlan(plan) {
+  const visibleCounts = {
+    create: 0,
+    update: 0,
+    unchanged: 0,
+    delete_candidate: 0,
+  };
+  for (const action of plan.actions) {
+    if (Object.prototype.hasOwnProperty.call(visibleCounts, action.action)) {
+      visibleCounts[action.action] += 1;
+    }
+  }
+
   dom.syncCounts.textContent =
-    `create=${plan.counts.create} update=${plan.counts.update} ` +
+    `visible: create=${visibleCounts.create} update=${visibleCounts.update} ` +
+    `unchanged=${visibleCounts.unchanged} delete_candidate=${visibleCounts.delete_candidate} | ` +
+    `total: create=${plan.counts.create} update=${plan.counts.update} ` +
     `unchanged=${plan.counts.unchanged} delete_candidate=${plan.counts.delete_candidate}`;
+
+  state.syncPlanBuiltAt = new Date();
+  state.syncPlanIsStale = false;
+  updateSyncPlanStateLine();
 
   dom.syncList.innerHTML = "";
   if (!plan.actions.length) {
@@ -630,6 +708,7 @@ async function saveCurrentFile() {
       }),
     });
     setStatus(`Saved ${state.selectedPath}.`);
+    markSyncPlanStale();
   } catch (error) {
     setStatus(`Save failed: ${error.message}`);
   }
@@ -655,38 +734,56 @@ async function runValidation() {
 }
 
 async function buildSyncPlan() {
+  if (state.syncRequestInFlight) {
+    return;
+  }
+
+  setSyncButtonsBusy(true, "build");
   setStatus("Building sync plan...");
   try {
-    const plan = await fetchJson("/api/sync-plan?include_unchanged=false");
+    const plan = await fetchSyncPlan(false);
     renderSyncPlan(plan);
     setStatus("Sync plan ready.");
   } catch (error) {
     setStatus(`Sync plan failed: ${error.message}`);
+  } finally {
+    setSyncButtonsBusy(false);
   }
 }
 
 async function applySyncPlan() {
+  if (state.syncRequestInFlight) {
+    return;
+  }
+
   if (!window.confirm("Apply create/update sync actions? Delete candidates are not removed.")) {
     return;
   }
 
+  setSyncButtonsBusy(true, "apply");
   setStatus("Applying sync plan...");
   try {
     const result = await fetchJson("/api/sync-apply", {
       method: "POST",
       body: JSON.stringify({ confirm: true }),
     });
+    const plan = await fetchSyncPlan(false);
+    renderSyncPlan(plan);
     setStatus(
       `Sync apply complete: created=${result.created} updated=${result.updated} skipped=${result.skipped}`
     );
-    await buildSyncPlan();
   } catch (error) {
+    markSyncPlanStale();
     setStatus(`Sync apply failed: ${error.message}`);
+  } finally {
+    setSyncButtonsBusy(false);
   }
 }
 
 async function init() {
   wireThemeToggle();
+  setSyncButtonsBusy(false);
+  updateSyncPlanStateLine();
   if (dom.syncDiffBackdrop) {
     dom.syncDiffBackdrop.addEventListener("click", closeSyncDiffModal);
   }

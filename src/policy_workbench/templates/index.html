@@ -76,10 +76,11 @@
 
     <h2 class="panel__heading">Sync Impact</h2>
     <div class="panel-header-row">
-      <button id="btn-build-sync" class="btn btn--secondary" type="button">Build Dry-Run Plan</button>
+      <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
       <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
     </div>
     <div id="sync-counts" class="meta-line">create=0 update=0 unchanged=0 delete_candidate=0</div>
+    <div id="sync-plan-state" class="meta-line">plan: not generated yet</div>
     <div class="list-shell list-shell--compact list-shell--sync">
       <ul id="sync-list" class="report-list"></ul>
     </div>
