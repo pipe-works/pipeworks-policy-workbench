@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.6](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.5...pipeworks-policy-workbench-v0.1.6) (2026-03-10)
+
+
+### Fixes
+
+* **deps:** bump pipeworks-ipc to v0.1.2 ([0254654](https://github.com/pipe-works/pipeworks-policy-workbench/commit/02546549f2aef812b7a4fcd0ff7592aa43b80158))
+* **deps:** bump pipeworks-ipc to v0.1.2 ([9d2646e](https://github.com/pipe-works/pipeworks-policy-workbench/commit/9d2646e2f70c2f5a8dfbab4f6740170bb15e7ec9))
+
 ## [0.1.5](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.4...pipeworks-policy-workbench-v0.1.5) (2026-03-10)
 
 
