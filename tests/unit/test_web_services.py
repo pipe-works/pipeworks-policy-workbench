@@ -27,9 +27,15 @@ def test_read_optional_text_wraps_decode_errors_as_value_error(tmp_path: Path) -
 
 
 def test_content_signature_and_canonical_label_cover_special_cases() -> None:
-    """Signature/label helpers should handle missing files and mud-server roots."""
+    """Signature/label helpers should handle missing/unreadable files and mud-server roots."""
 
     assert web_services._content_signature(source_content="ignored", exists=False) == "__missing__"
+    assert web_services._content_signature(source_content=None, exists=True) == "__unreadable__"
+
+    expected_hash = web_services.compute_payload_hash({"content": "canonical text"})
+    assert web_services._content_signature(source_content="canonical text", exists=True) == str(
+        expected_hash
+    )
 
     mud_server_root = Path("/tmp/pipeworks_mud_server/data/worlds/pipeworks_web/policies")
     assert web_services._canonical_source_label(mud_server_root) == "canonical-source: mud-server"
