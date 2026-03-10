@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.5](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.4...pipeworks-policy-workbench-v0.1.5) (2026-03-10)
+
+
+### Features
+
+* **sync:** add target-only drift contract and step-based sync UX ([93f6c66](https://github.com/pipe-works/pipeworks-policy-workbench/commit/93f6c661201394b4e827a52f2e6b093110b4d3cd))
+* **sync:** add target-only drift contract and step-based sync UX ([fcedc76](https://github.com/pipe-works/pipeworks-policy-workbench/commit/fcedc76d6d8443a280c932b1d1448a751b11a81e))
+* **web:** add canonical hash alignment status workflow ([1dd958c](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1dd958c80556499672962906915f3f5406a91fcd))
+* **web:** add canonical hash alignment status workflow ([1494970](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1494970acf97bac11928b1486b6707fbe5664cb0))
+* **web:** clarify sync dry-run plan state and feedback ([58d3c68](https://github.com/pipe-works/pipeworks-policy-workbench/commit/58d3c6862e451919cd5858282ab2bdac8e452207))
+* **web:** clarify sync dry-run plan state and feedback ([a9e7b8e](https://github.com/pipe-works/pipeworks-policy-workbench/commit/a9e7b8e0980c2fd318dd9f4747fe764589c549a1))
+* **web:** improve sync compare modal with side-by-side diff tools ([3ee06bd](https://github.com/pipe-works/pipeworks-policy-workbench/commit/3ee06bd0ad728ccbfa67deb78824f8ed5996f9f7))
+* **web:** improve sync compare modal with side-by-side diff tools ([27332b5](https://github.com/pipe-works/pipeworks-policy-workbench/commit/27332b56a585d0576858a3c7420cc5f4c499db5c))
+
+
+### Fixes
+
+* **web:** close hash status coverage gaps ([e73ff36](https://github.com/pipe-works/pipeworks-policy-workbench/commit/e73ff36ec6587555c8d00244f6b4765ec26f6db9))
+
 ## [0.1.4](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.3...pipeworks-policy-workbench-v0.1.4) (2026-03-10)
 
 
