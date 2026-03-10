@@ -104,6 +104,7 @@ class HashTargetStatusResponse(BaseModel):
     """Per-target hash alignment and drift counters for Step 1 UI."""
 
     name: str
+    file_count: int
     root_hash: str
     matches_canonical: bool | None
     missing_count: int
@@ -116,6 +117,8 @@ class HashStatusResponse(BaseModel):
 
     status: str
     canonical: HashCanonicalResponse | None
+    canonical_url: str | None
+    canonical_error: str | None
     targets: list[HashTargetStatusResponse]
 
 

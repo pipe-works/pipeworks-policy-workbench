@@ -19,11 +19,21 @@
   >☀ Light</button>
 </header>
 
-<main class="app-grid workbench-grid" aria-label="Policy Workbench">
-  <section class="panel panel--left" aria-label="Policy Tree Browser">
+<main id="workbench-grid" class="app-grid workbench-grid" aria-label="Policy Workbench">
+  <section id="panel-tree" class="panel panel--left" aria-label="Policy Tree Browser">
     <div class="panel-header-row">
       <h2 class="panel__heading">Policy Tree</h2>
-      <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
+      <div class="panel-header-actions">
+        <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
+        <button
+          id="btn-toggle-tree"
+          class="btn btn--secondary btn--sm tree-toggle-button"
+          type="button"
+          aria-expanded="true"
+          aria-label="Collapse Policy Tree panel"
+          aria-controls="panel-tree"
+        >◀</button>
+      </div>
     </div>
     <div class="tree-summary-shell" aria-live="polite" aria-label="Policy tree counts">
       <div class="tree-summary-metrics">
@@ -44,7 +54,10 @@
 
   <section class="panel panel--centre" aria-label="Raw File Editor">
     <div class="panel-header-row">
-      <h2 class="panel__heading">Raw Editor</h2>
+      <div class="panel-header-main">
+        <h2 class="panel__heading">Raw Editor</h2>
+        <button id="btn-expand-tree" class="btn btn--secondary btn--sm" type="button">Show Tree</button>
+      </div>
       <span id="editor-path" class="badge badge--muted">No file selected</span>
     </div>
 
@@ -76,17 +89,55 @@
 
     <h2 class="panel__heading">Sync Impact</h2>
     <div class="sync-steps" aria-label="Sync workflow">
-      <section class="sync-step sync-step--build" aria-labelledby="sync-step-build-heading">
+      <div class="sync-tabs" role="tablist" aria-label="Sync workflow steps">
+        <button
+          id="sync-tab-build"
+          class="sync-tab is-active"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="sync-step-build-panel"
+          data-sync-tab="build"
+        >Step 1</button>
+        <button
+          id="sync-tab-review"
+          class="sync-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="sync-step-review-panel"
+          data-sync-tab="review"
+        >Step 2</button>
+        <button
+          id="sync-tab-apply"
+          class="sync-tab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="sync-step-apply-panel"
+          data-sync-tab="apply"
+        >Step 3</button>
+      </div>
+
+      <section
+        id="sync-step-build-panel"
+        class="sync-step sync-step--build"
+        role="tabpanel"
+        aria-labelledby="sync-tab-build"
+        data-sync-step="build"
+      >
         <div class="sync-step__header">
           <h3 id="sync-step-build-heading" class="sync-step__title">Step 1 · Hash Snapshot</h3>
           <button id="btn-refresh-hash" class="btn btn--secondary" type="button">Refresh Hash Snapshot</button>
         </div>
         <p class="sync-step__note">Canonical hash authority from mud-server and local mirror alignment.</p>
         <table class="sync-state-table" aria-label="Hash snapshot state">
-          <tbody>
+          <tbody id="hash-state-table-body">
           <tr>
             <th scope="row">Overall</th>
-            <td id="hash-status-overall">unknown</td>
+            <td>
+              <span id="hash-status-overall" class="hash-target-badge hash-target-badge--muted">unknown</span>
+            </td>
           </tr>
           <tr>
             <th scope="row">Canonical hash</th>
@@ -96,11 +147,19 @@
             </td>
           </tr>
           <tr>
+            <th scope="row">Canonical URL</th>
+            <td id="hash-canonical-url">--</td>
+          </tr>
+          <tr>
+            <th scope="row">Status detail</th>
+            <td id="hash-canonical-error">--</td>
+          </tr>
+          <tr>
             <th scope="row">Generated</th>
             <td id="hash-generated-at">--</td>
           </tr>
-          <tr>
-            <th scope="row">File count</th>
+          <tr id="hash-file-count-row">
+            <th scope="row">Canonical files</th>
             <td id="hash-file-count">0</td>
           </tr>
           </tbody>
@@ -108,7 +167,14 @@
         <div id="hash-targets" class="hash-targets"></div>
       </section>
 
-      <section class="sync-step sync-step--review" aria-labelledby="sync-step-review-heading">
+      <section
+        id="sync-step-review-panel"
+        class="sync-step sync-step--review"
+        role="tabpanel"
+        aria-labelledby="sync-tab-review"
+        data-sync-step="review"
+        hidden
+      >
         <div class="sync-step__header">
           <h3 id="sync-step-review-heading" class="sync-step__title">Step 2 · Review Actions</h3>
           <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
@@ -129,9 +195,39 @@
         <div class="list-shell list-shell--compact list-shell--sync">
           <ul id="sync-list" class="report-list"></ul>
         </div>
+        <section id="sync-unchanged-card" class="sync-unchanged-card" aria-label="Unchanged breakdown">
+          <h4 class="sync-unchanged-card__title">Unchanged Breakdown</h4>
+          <table class="sync-unchanged-table" aria-label="Unchanged arithmetic across targets">
+            <thead>
+            <tr>
+              <th scope="col">Target</th>
+              <th scope="col">Arithmetic</th>
+              <th scope="col">Unchanged</th>
+            </tr>
+            </thead>
+            <tbody id="sync-unchanged-body">
+            <tr>
+              <td colspan="3">Generate hash snapshot and plan to view unchanged arithmetic.</td>
+            </tr>
+            </tbody>
+            <tfoot>
+            <tr>
+              <th scope="row" colspan="2">Total unchanged</th>
+              <td id="sync-unchanged-total">--</td>
+            </tr>
+            </tfoot>
+          </table>
+        </section>
       </section>
 
-      <section class="sync-step sync-step--apply" aria-labelledby="sync-step-apply-heading">
+      <section
+        id="sync-step-apply-panel"
+        class="sync-step sync-step--apply"
+        role="tabpanel"
+        aria-labelledby="sync-tab-apply"
+        data-sync-step="apply"
+        hidden
+      >
         <div class="sync-step__header">
           <h3 id="sync-step-apply-heading" class="sync-step__title">Step 3 · Apply Changes</h3>
           <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
