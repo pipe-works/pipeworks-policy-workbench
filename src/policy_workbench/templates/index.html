@@ -78,25 +78,48 @@
     <div class="sync-steps" aria-label="Sync workflow">
       <section class="sync-step sync-step--build" aria-labelledby="sync-step-build-heading">
         <div class="sync-step__header">
-          <h3 id="sync-step-build-heading" class="sync-step__title">Step 1 · Generate Plan</h3>
+          <h3 id="sync-step-build-heading" class="sync-step__title">Step 1 · Hash Snapshot</h3>
+          <button id="btn-refresh-hash" class="btn btn--secondary" type="button">Refresh Hash Snapshot</button>
+        </div>
+        <p class="sync-step__note">Canonical hash authority from mud-server and local mirror alignment.</p>
+        <table class="sync-state-table" aria-label="Hash snapshot state">
+          <tbody>
+          <tr>
+            <th scope="row">Overall</th>
+            <td id="hash-status-overall">unknown</td>
+          </tr>
+          <tr>
+            <th scope="row">Canonical hash</th>
+            <td class="hash-row-value">
+              <span id="hash-canonical-root">--</span>
+              <button id="btn-copy-hash" class="btn btn--secondary btn--sm" type="button">Copy</button>
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Generated</th>
+            <td id="hash-generated-at">--</td>
+          </tr>
+          <tr>
+            <th scope="row">File count</th>
+            <td id="hash-file-count">0</td>
+          </tr>
+          </tbody>
+        </table>
+        <div id="hash-targets" class="hash-targets"></div>
+      </section>
+
+      <section class="sync-step sync-step--review" aria-labelledby="sync-step-review-heading">
+        <div class="sync-step__header">
+          <h3 id="sync-step-review-heading" class="sync-step__title">Step 2 · Review Actions</h3>
           <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
         </div>
-        <p class="sync-step__note">Dry-run preview only; no files are changed.</p>
-        <table class="sync-state-table" aria-label="Sync plan state">
+        <div id="sync-counts" class="sync-summary-chips" aria-live="polite"></div>
+        <table class="sync-state-table" aria-label="Review progress">
           <tbody>
           <tr>
             <th scope="row">Plan</th>
             <td id="sync-plan-state">not generated yet</td>
           </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section class="sync-step sync-step--review" aria-labelledby="sync-step-review-heading">
-        <h3 id="sync-step-review-heading" class="sync-step__title">Step 2 · Review Actions</h3>
-        <div id="sync-counts" class="sync-summary-chips" aria-live="polite"></div>
-        <table class="sync-state-table" aria-label="Review progress">
-          <tbody>
           <tr>
             <th scope="row">Reviewed</th>
             <td id="sync-reviewed-state">0 / 0 actions</td>

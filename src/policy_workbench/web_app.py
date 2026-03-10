@@ -12,6 +12,7 @@ from fastapi.templating import Jinja2Templates
 from . import __version__
 from .sync_apply import apply_sync_plan
 from .web_models import (
+    HashStatusResponse,
     PolicyFileResponse,
     PolicyFileUpdateRequest,
     PolicyFileUpdateResponse,
@@ -23,6 +24,7 @@ from .web_models import (
     ValidationResponse,
 )
 from .web_services import (
+    build_hash_status_payload,
     build_sync_compare_payload,
     build_sync_payload,
     build_sync_plan_for_apply,
@@ -141,6 +143,27 @@ def create_web_app(
                 map_path_override=map_path or map_path_override,
             )
             return build_validation_payload(source_root)
+        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/hash-status", response_model=HashStatusResponse)
+    async def api_hash_status(
+        root: str | None = Query(default=None),
+        map_path: str | None = Query(default=None),
+        canonical_url: str | None = Query(default=None),
+    ) -> HashStatusResponse:
+        """Return canonical/mirror hash alignment status for Step 1 UI."""
+
+        try:
+            source_root = resolve_source_root_for_web(
+                root_override=root or source_root_override,
+                map_path_override=map_path or map_path_override,
+            )
+            return build_hash_status_payload(
+                source_root=source_root,
+                map_path_override=map_path or map_path_override,
+                canonical_snapshot_url_override=canonical_url,
+            )
         except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

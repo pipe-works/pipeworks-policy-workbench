@@ -6,7 +6,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from policy_workbench import web_services
 from policy_workbench.web_app import create_web_app
+from policy_workbench.web_models import HashCanonicalResponse
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -139,6 +141,107 @@ def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["counts"] == {"error": 0, "warning": 0, "info": 0}
     assert payload["issues"] == []
+
+
+def test_hash_status_endpoint_returns_drift_counts_for_mismatched_target(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Hash status endpoint should report canonical drift and per-target counters."""
+
+    client, source_root, _ = _build_client(tmp_path)
+    source_entries = web_services._collect_local_policy_entries(source_root)
+    canonical_root_hash = web_services._compute_tree_hash(source_entries)
+    canonical_snapshot = HashCanonicalResponse(
+        hash_version="policy_tree_hash_v1",
+        canonical_root=str(source_root),
+        generated_at="2026-03-10T12:00:00Z",
+        file_count=len(source_entries),
+        root_hash=canonical_root_hash,
+        directories=[],
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: canonical_snapshot,
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "drift"
+    assert payload["canonical"]["root_hash"] == canonical_root_hash
+    assert len(payload["targets"]) == 1
+    target = payload["targets"][0]
+    assert target["name"] == "mirror-target"
+    assert target["matches_canonical"] is False
+    assert target["missing_count"] == 1
+    assert target["different_count"] == 1
+    assert target["target_only_count"] == 1
+
+
+def test_hash_status_endpoint_excludes_target_only_from_match_digest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Target-only files should not force hash mismatch when canonical paths align."""
+
+    client, source_root, target_root = _build_client(tmp_path)
+    _write_text(target_root / "image" / "prompts" / "scene.txt", "new scene prompt")
+    _write_text(
+        target_root / "image" / "blocks" / "species" / "goblin_v1.yaml",
+        "text: |\n  A canonical goblin prompt.\n",
+    )
+
+    source_entries = web_services._collect_local_policy_entries(source_root)
+    canonical_root_hash = web_services._compute_tree_hash(source_entries)
+    canonical_snapshot = HashCanonicalResponse(
+        hash_version="policy_tree_hash_v1",
+        canonical_root=str(source_root),
+        generated_at="2026-03-10T12:00:00Z",
+        file_count=len(source_entries),
+        root_hash=canonical_root_hash,
+        directories=[],
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: canonical_snapshot,
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    target = payload["targets"][0]
+    assert target["matches_canonical"] is True
+    assert target["missing_count"] == 0
+    assert target["different_count"] == 0
+    assert target["target_only_count"] == 1
+
+
+def test_hash_status_endpoint_handles_canonical_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Canonical fetch failure should return canonical_unavailable status, not HTTP failure."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_canonical_hash_snapshot",
+        lambda _url: (_ for _ in ()).throw(ValueError("canonical endpoint unavailable")),
+    )
+
+    response = client.get("/api/hash-status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "canonical_unavailable"
+    assert payload["canonical"] is None
+    assert payload["targets"][0]["matches_canonical"] is None
 
 
 def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Path) -> None:

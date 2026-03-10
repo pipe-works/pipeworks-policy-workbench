@@ -7,6 +7,11 @@ const dom = {
   themeToggle: document.getElementById("theme-toggle"),
   validationCounts: document.getElementById("validation-counts"),
   validationList: document.getElementById("validation-list"),
+  hashStatusOverall: document.getElementById("hash-status-overall"),
+  hashCanonicalRoot: document.getElementById("hash-canonical-root"),
+  hashGeneratedAt: document.getElementById("hash-generated-at"),
+  hashFileCount: document.getElementById("hash-file-count"),
+  hashTargets: document.getElementById("hash-targets"),
   syncCounts: document.getElementById("sync-counts"),
   syncPlanState: document.getElementById("sync-plan-state"),
   syncReviewedState: document.getElementById("sync-reviewed-state"),
@@ -24,6 +29,8 @@ const dom = {
   statusText: document.getElementById("status-text"),
   statusSource: document.getElementById("status-source"),
   btnRefreshTree: document.getElementById("btn-refresh-tree"),
+  btnRefreshHash: document.getElementById("btn-refresh-hash"),
+  btnCopyHash: document.getElementById("btn-copy-hash"),
   btnSaveFile: document.getElementById("btn-save-file"),
   btnReloadFile: document.getElementById("btn-reload-file"),
   btnRunValidation: document.getElementById("btn-run-validation"),
@@ -38,6 +45,8 @@ const state = {
   directoriesCount: 0,
   currentComparePath: "",
   currentCompareRelativePath: "",
+  hashStatus: null,
+  hashRequestInFlight: false,
   syncPlanBuiltAt: null,
   syncPlanIsStale: true,
   syncRequestInFlight: false,
@@ -51,6 +60,7 @@ const state = {
 };
 
 const THEME_STORAGE_KEY = "ppw-theme";
+const HASH_REFRESH_LABEL = "Refresh Hash Snapshot";
 const SYNC_REFRESH_LABEL = "Refresh Dry-Run Plan";
 const SYNC_APPLY_LABEL = "Apply Create/Update";
 const SYNC_ACTION_SORT_ORDER = {
@@ -171,6 +181,174 @@ function updateSyncApplyHint() {
   }
 
   dom.syncApplyHint.textContent = "Ready to apply create/update actions.";
+}
+
+function setHashButtonBusy(isBusy) {
+  state.hashRequestInFlight = isBusy;
+  if (!dom.btnRefreshHash) {
+    return;
+  }
+
+  dom.btnRefreshHash.disabled = isBusy;
+  dom.btnRefreshHash.textContent = isBusy ? "Refreshing..." : HASH_REFRESH_LABEL;
+  dom.btnRefreshHash.setAttribute("aria-busy", isBusy ? "true" : "false");
+}
+
+function formatHashShort(hashText) {
+  if (!hashText) {
+    return "--";
+  }
+  if (hashText.length <= 20) {
+    return hashText;
+  }
+  return `${hashText.slice(0, 10)}…${hashText.slice(-8)}`;
+}
+
+function formatCanonicalGeneratedAt(rawValue) {
+  if (!rawValue) {
+    return "--";
+  }
+
+  const parsed = new Date(rawValue);
+  if (Number.isNaN(parsed.valueOf())) {
+    return rawValue;
+  }
+  return formatLocalDateTime(parsed);
+}
+
+function hashStatusTone(status) {
+  if (status === "ok") {
+    return "ok";
+  }
+  if (status === "drift") {
+    return "warn";
+  }
+  return "err";
+}
+
+function hashStatusText(status) {
+  if (status === "ok") {
+    return "Aligned";
+  }
+  if (status === "drift") {
+    return "Drift detected";
+  }
+  return "Canonical unavailable";
+}
+
+function renderHashTargets(targets) {
+  if (!dom.hashTargets) {
+    return;
+  }
+
+  dom.hashTargets.innerHTML = "";
+  if (!targets.length) {
+    const empty = document.createElement("div");
+    empty.className = "hash-target-card";
+    empty.textContent = "No mirror targets configured.";
+    dom.hashTargets.appendChild(empty);
+    return;
+  }
+
+  for (const target of targets) {
+    const card = document.createElement("article");
+    card.className = "hash-target-card";
+
+    const top = document.createElement("div");
+    top.className = "hash-target-card__top";
+    const name = document.createElement("span");
+    name.className = "hash-target-card__name";
+    name.textContent = target.name;
+
+    const matchBadge = document.createElement("span");
+    const matchTone = target.matches_canonical === null
+      ? "muted"
+      : (target.matches_canonical ? "ok" : "warn");
+    matchBadge.className = `hash-target-badge hash-target-badge--${matchTone}`;
+    matchBadge.textContent = target.matches_canonical === null
+      ? "unknown"
+      : (target.matches_canonical ? "aligned" : "drift");
+    top.append(name, matchBadge);
+
+    const meta = document.createElement("div");
+    meta.className = "hash-target-card__meta";
+    meta.append(
+      buildHashMetaLine(`missing ${target.missing_count}`),
+      buildHashMetaLine(`different ${target.different_count}`),
+      buildHashMetaLine(`target-only ${target.target_only_count}`)
+    );
+
+    const rootLine = buildHashMetaLine(`hash ${formatHashShort(target.root_hash)}`);
+    rootLine.title = target.root_hash;
+
+    card.append(top, meta, rootLine);
+    dom.hashTargets.appendChild(card);
+  }
+}
+
+function buildHashMetaLine(text) {
+  const line = document.createElement("span");
+  line.className = "hash-target-card__line";
+  line.textContent = text;
+  return line;
+}
+
+function renderHashStatus(payload) {
+  state.hashStatus = payload;
+  if (dom.hashStatusOverall) {
+    dom.hashStatusOverall.textContent = hashStatusText(payload.status);
+    dom.hashStatusOverall.className = `hash-target-badge hash-target-badge--${hashStatusTone(payload.status)}`;
+  }
+
+  if (dom.hashCanonicalRoot) {
+    if (payload.canonical) {
+      dom.hashCanonicalRoot.textContent = formatHashShort(payload.canonical.root_hash);
+      dom.hashCanonicalRoot.title = payload.canonical.root_hash;
+    } else {
+      dom.hashCanonicalRoot.textContent = "--";
+      dom.hashCanonicalRoot.title = "";
+    }
+  }
+
+  if (dom.hashGeneratedAt) {
+    dom.hashGeneratedAt.textContent = payload.canonical
+      ? formatCanonicalGeneratedAt(payload.canonical.generated_at)
+      : "--";
+  }
+
+  if (dom.hashFileCount) {
+    dom.hashFileCount.textContent = payload.canonical ? `${payload.canonical.file_count}` : "--";
+  }
+
+  if (dom.btnCopyHash) {
+    dom.btnCopyHash.disabled = !payload.canonical;
+  }
+
+  renderHashTargets(payload.targets || []);
+}
+
+async function refreshHashStatus() {
+  if (state.hashRequestInFlight) {
+    return;
+  }
+
+  setHashButtonBusy(true);
+  setStatus("Refreshing hash snapshot...");
+  try {
+    const payload = await fetchJson("/api/hash-status");
+    renderHashStatus(payload);
+    if (payload.status === "ok") {
+      setStatus("Hash snapshot aligned.");
+    } else if (payload.status === "drift") {
+      setStatus("Hash snapshot updated: drift detected.");
+    } else {
+      setStatus("Hash snapshot updated: canonical endpoint unavailable.");
+    }
+  } catch (error) {
+    setStatus(`Hash snapshot failed: ${error.message}`);
+  } finally {
+    setHashButtonBusy(false);
+  }
 }
 
 async function fetchSyncPlan(includeUnchanged = false) {
@@ -1047,6 +1225,10 @@ async function applySyncPlan() {
 
 async function init() {
   wireThemeToggle();
+  setHashButtonBusy(false);
+  if (dom.btnCopyHash) {
+    dom.btnCopyHash.disabled = true;
+  }
   setSyncButtonsBusy(false);
   updateSyncPlanStateLine();
   updateReviewedStateLine();
@@ -1079,12 +1261,32 @@ async function init() {
   }
 
   dom.btnRefreshTree.addEventListener("click", loadTree);
+  if (dom.btnRefreshHash) {
+    dom.btnRefreshHash.addEventListener("click", refreshHashStatus);
+  }
+  if (dom.btnCopyHash) {
+    dom.btnCopyHash.addEventListener("click", async () => {
+      const canonicalHash = state.hashStatus?.canonical?.root_hash;
+      if (!canonicalHash) {
+        setStatus("No canonical hash available to copy.");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(canonicalHash);
+        setStatus("Canonical hash copied.");
+      } catch {
+        setStatus("Unable to copy canonical hash.");
+      }
+    });
+  }
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
   dom.btnRunValidation.addEventListener("click", runValidation);
   dom.btnBuildSync.addEventListener("click", buildSyncPlan);
   dom.btnApplySync.addEventListener("click", applySyncPlan);
 
+  await refreshHashStatus();
   await loadTree();
   await runValidation();
   await buildSyncPlan();
