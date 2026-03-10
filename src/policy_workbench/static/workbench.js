@@ -1,13 +1,16 @@
 const dom = {
-  treeSummary: document.getElementById("tree-summary"),
+  treeSummaryDirectories: document.getElementById("tree-summary-directories"),
+  treeSummaryFiles: document.getElementById("tree-summary-files"),
   treeList: document.getElementById("tree-list"),
   editorPath: document.getElementById("editor-path"),
   fileEditor: document.getElementById("file-editor"),
+  themeToggle: document.getElementById("theme-toggle"),
   validationCounts: document.getElementById("validation-counts"),
   validationList: document.getElementById("validation-list"),
   syncCounts: document.getElementById("sync-counts"),
   syncList: document.getElementById("sync-list"),
   statusText: document.getElementById("status-text"),
+  statusSource: document.getElementById("status-source"),
   btnRefreshTree: document.getElementById("btn-refresh-tree"),
   btnSaveFile: document.getElementById("btn-save-file"),
   btnReloadFile: document.getElementById("btn-reload-file"),
@@ -23,8 +26,42 @@ const state = {
   directoriesCount: 0,
 };
 
+const THEME_STORAGE_KEY = "ppw-theme";
+
 function setStatus(message) {
   dom.statusText.textContent = message;
+}
+
+function wireThemeToggle() {
+  const button = dom.themeToggle;
+  if (!button) {
+    return;
+  }
+
+  const applyTheme = (theme) => {
+    const normalizedTheme = theme === "light" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", normalizedTheme);
+    button.textContent = normalizedTheme === "light" ? "\u263E Dark" : "\u2600 Light";
+
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, normalizedTheme);
+    } catch {
+      // Theme persistence is optional; UI still works without storage access.
+    }
+  };
+
+  let savedTheme = "dark";
+  try {
+    savedTheme = localStorage.getItem(THEME_STORAGE_KEY) || "dark";
+  } catch {
+    // Fall back to default theme when storage is unavailable.
+  }
+  applyTheme(savedTheme);
+
+  button.addEventListener("click", () => {
+    const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+    applyTheme(currentTheme === "dark" ? "light" : "dark");
+  });
 }
 
 async function fetchJson(url, options = {}) {
@@ -51,31 +88,108 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
   state.fileIndex = artifacts;
   state.sourceRoot = sourceRoot;
   state.directoriesCount = directoriesCount;
-  dom.treeSummary.textContent = `source=${sourceRoot} directories=${directoriesCount} files=${artifacts.length}`;
+  dom.treeSummaryDirectories.textContent = `${directoriesCount}`;
+  dom.treeSummaryFiles.textContent = `${artifacts.length}`;
+  if (dom.statusSource) {
+    dom.statusSource.textContent = `source: ${sourceRoot}`;
+    dom.statusSource.title = sourceRoot;
+  }
 
   dom.treeList.innerHTML = "";
-  for (const artifact of artifacts) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.className = "tree-item";
-    if (artifact.relative_path === state.selectedPath) {
-      button.classList.add("is-active");
+  if (!artifacts.length) {
+    const emptyItem = document.createElement("li");
+    emptyItem.className = "report-item report-item--info";
+    emptyItem.textContent = "No editable .txt/.yaml/.yml policy files found.";
+    dom.treeList.appendChild(emptyItem);
+    return;
+  }
+
+  const groupedArtifacts = groupArtifactsByDirectory(artifacts);
+  for (const [directory, directoryArtifacts] of groupedArtifacts) {
+    const groupItem = document.createElement("li");
+    groupItem.className = "tree-group";
+
+    const details = document.createElement("details");
+    details.className = "tree-group__details";
+    details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "tree-group__summary";
+    const label = document.createElement("span");
+    label.className = "tree-group__label";
+    label.textContent = directory;
+    const count = document.createElement("span");
+    count.className = "tree-group__count";
+    count.textContent = `${directoryArtifacts.length}`;
+    summary.append(label, count);
+
+    const filesList = document.createElement("ul");
+    filesList.className = "tree-group__files";
+
+    for (const artifact of directoryArtifacts) {
+      const fileItem = document.createElement("li");
+      const button = document.createElement("button");
+      button.className = "tree-item tree-item--leaf";
+      if (artifact.relative_path === state.selectedPath) {
+        button.classList.add("is-active");
+      }
+      button.title = artifact.relative_path;
+
+      const pathSpan = document.createElement("span");
+      pathSpan.className = "tree-item__path";
+      pathSpan.textContent = basenameFromPath(artifact.relative_path);
+
+      const roleSpan = document.createElement("span");
+      roleSpan.className = "tree-item__role";
+      roleSpan.textContent = artifact.role;
+
+      button.append(pathSpan, roleSpan);
+      button.addEventListener("click", () => loadFile(artifact.relative_path));
+
+      fileItem.appendChild(button);
+      filesList.appendChild(fileItem);
     }
 
-    const pathSpan = document.createElement("span");
-    pathSpan.className = "tree-item__path";
-    pathSpan.textContent = artifact.relative_path;
-
-    const roleSpan = document.createElement("span");
-    roleSpan.className = "tree-item__role";
-    roleSpan.textContent = artifact.role;
-
-    button.append(pathSpan, roleSpan);
-    button.addEventListener("click", () => loadFile(artifact.relative_path));
-
-    item.appendChild(button);
-    dom.treeList.appendChild(item);
+    details.append(summary, filesList);
+    groupItem.appendChild(details);
+    dom.treeList.appendChild(groupItem);
   }
+}
+
+function groupArtifactsByDirectory(artifacts) {
+  const byDirectory = new Map();
+  for (const artifact of artifacts) {
+    const directory = directoryFromPath(artifact.relative_path);
+    if (!byDirectory.has(directory)) {
+      byDirectory.set(directory, []);
+    }
+    byDirectory.get(directory).push(artifact);
+  }
+
+  return [...byDirectory.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([directory, directoryArtifacts]) => [
+      directory,
+      [...directoryArtifacts].sort((left, right) =>
+        left.relative_path.localeCompare(right.relative_path)
+      ),
+    ]);
+}
+
+function directoryFromPath(relativePath) {
+  const lastSeparatorIndex = relativePath.lastIndexOf("/");
+  if (lastSeparatorIndex === -1) {
+    return "<root>";
+  }
+  return relativePath.slice(0, lastSeparatorIndex);
+}
+
+function basenameFromPath(relativePath) {
+  const lastSeparatorIndex = relativePath.lastIndexOf("/");
+  if (lastSeparatorIndex === -1) {
+    return relativePath;
+  }
+  return relativePath.slice(lastSeparatorIndex + 1);
 }
 
 function renderValidation(report) {
@@ -224,6 +338,7 @@ async function applySyncPlan() {
 }
 
 async function init() {
+  wireThemeToggle();
   dom.btnRefreshTree.addEventListener("click", loadTree);
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);

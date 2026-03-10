@@ -79,6 +79,8 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
     """Tree and file APIs should support read/write loop with path safety."""
 
     client, source_root, _ = _build_client(tmp_path)
+    _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
+    _write_text(source_root / "image" / "notes.md", "ignored markdown file")
 
     tree_response = client.get("/api/tree")
     assert tree_response.status_code == 200
@@ -87,6 +89,12 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
     assert any(
         item["relative_path"] == "image/prompts/scene.txt" for item in tree_payload["artifacts"]
     )
+    assert all(
+        Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}
+        for item in tree_payload["artifacts"]
+    )
+    assert not any(item["relative_path"] == "image/.DS_Store" for item in tree_payload["artifacts"])
+    assert not any(item["relative_path"] == "image/notes.md" for item in tree_payload["artifacts"])
 
     read_response = client.get("/api/file", params={"relative_path": "image/prompts/scene.txt"})
     assert read_response.status_code == 200
@@ -107,11 +115,24 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
     assert traversal_response.status_code == 400
     assert "escapes source root" in traversal_response.json()["detail"]
 
+    unsupported_read_response = client.get("/api/file", params={"relative_path": "image/.DS_Store"})
+    assert unsupported_read_response.status_code == 400
+    assert "Only .txt, .yaml, and .yml" in unsupported_read_response.json()["detail"]
+
+    unsupported_write_response = client.put(
+        "/api/file",
+        json={"relative_path": "image/notes.md", "content": "should fail"},
+    )
+    assert unsupported_write_response.status_code == 400
+    assert "Only .txt, .yaml, and .yml" in unsupported_write_response.json()["detail"]
+
 
 def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
     """Validation endpoint should report no issues for clean prompt fixtures."""
 
-    client, _, _ = _build_client(tmp_path)
+    client, source_root, _ = _build_client(tmp_path)
+    _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
+    _write_text(source_root / "image" / "notes.md", "ignored markdown file")
 
     response = client.get("/api/validate")
     assert response.status_code == 200
@@ -123,7 +144,11 @@ def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
 def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Path) -> None:
     """Sync APIs should classify actions and apply only create/update writes."""
 
-    client, _, target_root = _build_client(tmp_path)
+    client, source_root, target_root = _build_client(tmp_path)
+    _write_text(source_root / "image" / ".DS_Store", "ignored source metadata file")
+    _write_text(source_root / "image" / ".gitkeep", "")
+    _write_text(target_root / "image" / ".DS_Store", "ignored target metadata file")
+    _write_text(target_root / "image" / "README.md", "ignored markdown file")
 
     plan_response = client.get("/api/sync-plan", params={"include_unchanged": False})
     assert plan_response.status_code == 200
@@ -139,6 +164,10 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
         "update",
         "delete_candidate",
     }
+    assert all(
+        Path(action["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}
+        for action in plan_payload["actions"]
+    )
 
     denied_response = client.post("/api/sync-apply", json={"confirm": False})
     assert denied_response.status_code == 400
