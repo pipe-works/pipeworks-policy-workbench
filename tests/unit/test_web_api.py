@@ -169,6 +169,31 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
         for action in plan_payload["actions"]
     )
 
+    compare_response = client.get(
+        "/api/sync-compare",
+        params={
+            "relative_path": "image/prompts/scene.txt",
+            "focus_target": "mirror-target",
+        },
+    )
+    assert compare_response.status_code == 200
+    compare_payload = compare_response.json()
+    assert compare_payload["relative_path"] == "image/prompts/scene.txt"
+    assert compare_payload["focus_target"] == "mirror-target"
+    assert compare_payload["unique_variant_count"] >= 2
+
+    variants = compare_payload["variants"]
+    assert len(variants) == 2
+    source_variant = variants[0]
+    target_variant = variants[1]
+    assert source_variant["kind"] == "source"
+    assert source_variant["matches_source"] is True
+    assert target_variant["target"] == "mirror-target"
+    assert target_variant["action"] == "update"
+    assert target_variant["matches_source"] is False
+    assert source_variant["content"] == "new scene prompt"
+    assert target_variant["content"] == "old scene prompt"
+
     denied_response = client.post("/api/sync-apply", json={"confirm": False})
     assert denied_response.status_code == 400
     assert denied_response.json()["detail"] == "Sync apply requires confirm=true"
@@ -186,3 +211,14 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
     assert (target_root / "image" / "prompts" / "extra.txt").read_text(encoding="utf-8") == (
         "target only"
     )
+
+
+def test_sync_compare_endpoint_rejects_unsupported_file_extensions(tmp_path: Path) -> None:
+    """Sync compare should return HTTP 400 when the path is not .txt/.yaml/.yml."""
+
+    client, _, _ = _build_client(tmp_path)
+
+    response = client.get("/api/sync-compare", params={"relative_path": "image/notes.md"})
+
+    assert response.status_code == 400
+    assert "Only .txt, .yaml, and .yml" in response.json()["detail"]

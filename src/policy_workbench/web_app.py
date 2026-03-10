@@ -18,10 +18,12 @@ from .web_models import (
     PolicyTreeResponse,
     SyncApplyRequest,
     SyncApplyResponse,
+    SyncCompareResponse,
     SyncPlanResponse,
     ValidationResponse,
 )
 from .web_services import (
+    build_sync_compare_payload,
     build_sync_payload,
     build_sync_plan_for_apply,
     build_tree_payload,
@@ -167,6 +169,29 @@ def create_web_app(
             ValueError,
             OSError,
         ) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/sync-compare", response_model=SyncCompareResponse)
+    async def api_sync_compare(
+        relative_path: str = Query(min_length=1),
+        focus_target: str | None = Query(default=None),
+        root: str | None = Query(default=None),
+        map_path: str | None = Query(default=None),
+    ) -> SyncCompareResponse:
+        """Return side-by-side source/target comparison for one sync path."""
+
+        try:
+            source_root = resolve_source_root_for_web(
+                root_override=root or source_root_override,
+                map_path_override=map_path or map_path_override,
+            )
+            return build_sync_compare_payload(
+                source_root=source_root,
+                map_path_override=map_path or map_path_override,
+                relative_path=relative_path,
+                focus_target=focus_target,
+            )
+        except (IsADirectoryError, NotADirectoryError, ValueError, OSError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.post("/api/sync-apply", response_model=SyncApplyResponse)
