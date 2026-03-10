@@ -14,7 +14,7 @@ dependencies = [
   "fastapi>=0.116.0",
   "jinja2>=3.1.4",
   "PyYAML>=6.0.0",
-  "pipeworks-ipc @ git+https://github.com/pipe-works/pipeworks_ipc.git@pipeworks-ipc-v0.1.1",
+  "pipeworks-ipc @ git+https://github.com/pipe-works/pipeworks_ipc.git@pipeworks-ipc-v0.1.2",
   "uvicorn>=0.35.0",
 ]
 
