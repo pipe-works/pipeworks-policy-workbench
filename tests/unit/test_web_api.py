@@ -211,3 +211,14 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
     assert (target_root / "image" / "prompts" / "extra.txt").read_text(encoding="utf-8") == (
         "target only"
     )
+
+
+def test_sync_compare_endpoint_rejects_unsupported_file_extensions(tmp_path: Path) -> None:
+    """Sync compare should return HTTP 400 when the path is not .txt/.yaml/.yml."""
+
+    client, _, _ = _build_client(tmp_path)
+
+    response = client.get("/api/sync-compare", params={"relative_path": "image/notes.md"})
+
+    assert response.status_code == 400
+    assert "Only .txt, .yaml, and .yml" in response.json()["detail"]
