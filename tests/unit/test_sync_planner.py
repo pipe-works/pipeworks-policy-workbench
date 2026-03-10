@@ -15,7 +15,7 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def test_build_sync_plan_detects_create_update_unchanged_and_delete_candidates(
+def test_build_sync_plan_detects_create_update_unchanged_and_target_onlys(
     tmp_path: Path,
 ) -> None:
     """Planner should classify all core sync action types in one pass."""
@@ -45,7 +45,7 @@ def test_build_sync_plan_detects_create_update_unchanged_and_delete_candidates(
     assert by_relpath["create.txt"].action == SyncActionType.CREATE
     assert by_relpath["same.txt"].action == SyncActionType.UNCHANGED
     assert by_relpath["update.txt"].action == SyncActionType.UPDATE
-    assert by_relpath["extra.txt"].action == SyncActionType.DELETE_CANDIDATE
+    assert by_relpath["extra.txt"].action == SyncActionType.TARGET_ONLY
 
 
 def test_build_sync_plan_is_stable_ordered_by_target_then_path(tmp_path: Path) -> None:

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pipeworks_ipc.hashing import compute_payload_hash
+
 from .sync_models import MirrorMap, SyncAction, SyncActionType, SyncPlan
 
 
@@ -58,16 +60,16 @@ def build_sync_plan(source_root: Path, mirror_map: MirrorMap) -> SyncPlan:
                 )
                 continue
 
-            # Target-only files are detected and reported as explicit
-            # delete-candidates, but are intentionally not removed by default.
+            # Target-only files are explicit drift indicators and require
+            # user review. Apply mode intentionally does not remove them.
             actions.append(
                 SyncAction(
                     target_name=target.name,
                     relative_path=relative_path,
-                    action=SyncActionType.DELETE_CANDIDATE,
+                    action=SyncActionType.TARGET_ONLY,
                     source_path=None,
                     target_path=target_path,
-                    reason="target-only file; destructive deletes are disabled by default",
+                    reason="target-only file; no canonical source file exists for this path",
                 )
             )
 
@@ -84,11 +86,17 @@ def _collect_files(root: Path) -> dict[str, Path]:
 
 
 def _file_contents_equal(left: Path, right: Path) -> bool:
-    """Compare two files by bytes for deterministic sync decisions."""
+    """Compare two files using deterministic IPC hashing."""
 
     try:
-        return left.read_bytes() == right.read_bytes()
+        return _file_hash(left) == _file_hash(right)
     except OSError:
         # If either file cannot be read, force an update action so apply mode
         # can rewrite target content from the known source state.
         return False
+
+
+def _file_hash(path: Path) -> str:
+    """Return deterministic hash for one file using ``pipeworks_ipc`` helpers."""
+
+    return str(compute_payload_hash({"bytes_hex": path.read_bytes().hex()}))
