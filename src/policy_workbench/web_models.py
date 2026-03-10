@@ -81,6 +81,30 @@ class SyncPlanResponse(BaseModel):
     actions: list[SyncActionResponse]
 
 
+class SyncCompareVariantResponse(BaseModel):
+    """One source/target column entry for side-by-side sync comparison."""
+
+    label: str
+    kind: str
+    target: str | None
+    action: str | None
+    path: str
+    exists: bool
+    matches_source: bool
+    group_id: int
+    content: str | None
+
+
+class SyncCompareResponse(BaseModel):
+    """Side-by-side comparison payload for one relative path across repos."""
+
+    relative_path: str
+    source_root: str
+    focus_target: str | None
+    unique_variant_count: int
+    variants: list[SyncCompareVariantResponse]
+
+
 class SyncApplyRequest(BaseModel):
     """Request payload for sync apply endpoint safety gate."""
 

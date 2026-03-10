@@ -86,6 +86,25 @@
   </section>
 </main>
 
+<div id="sync-diff-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="sync-diff-title">
+  <div id="sync-diff-backdrop" class="modal__backdrop"></div>
+  <div class="modal__card sync-diff-modal__card">
+    <div class="modal__header">
+      <h3 id="sync-diff-title" class="panel__heading">Sync Compare</h3>
+      <button id="sync-diff-close-x" class="btn btn--secondary btn--sm" type="button">Close</button>
+    </div>
+    <div id="sync-diff-meta" class="sync-diff-meta"></div>
+    <div class="sync-compare-path-row">
+      <span id="sync-compare-path" class="sync-compare-path">pipeworks_web/policies/...</span>
+      <button id="sync-compare-copy-path" class="btn btn--secondary btn--sm" type="button">Copy Path</button>
+    </div>
+    <div id="sync-compare-columns" class="sync-compare-columns"></div>
+    <div class="modal__actions">
+      <button id="sync-diff-close" class="btn btn--secondary" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
 <footer class="status-bar" aria-live="polite">
   <span id="status-text" class="status-bar__text">Ready.</span>
   <span id="status-source" class="status-bar__text status-bar__source">source: --</span>
