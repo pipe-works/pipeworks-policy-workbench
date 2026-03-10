@@ -93,7 +93,7 @@ def test_run_validate_returns_0_for_clean_prompt_artifact(tmp_path: Path) -> Non
     assert err.getvalue() == ""
 
 
-def test_run_sync_dry_run_text_reports_create_update_delete_candidate(tmp_path: Path) -> None:
+def test_run_sync_dry_run_text_reports_create_update_target_only(tmp_path: Path) -> None:
     """Sync dry-run should produce deterministic human-readable action lines."""
 
     source_root = tmp_path / "source"
@@ -126,10 +126,10 @@ def test_run_sync_dry_run_text_reports_create_update_delete_candidate(tmp_path: 
 
     output = out.getvalue()
     assert exit_code == 0
-    assert "summary: create=1 update=1 unchanged=1 delete_candidate=1" in output
+    assert "summary: create=1 update=1 unchanged=1 target_only=1" in output
     assert "[target-a] create create.txt" in output
     assert "[target-a] update update.txt" in output
-    assert "[target-a] delete_candidate target_only.txt" in output
+    assert "[target-a] target_only target_only.txt" in output
     assert "[target-a] unchanged same.txt" not in output
     assert err.getvalue() == ""
 
@@ -163,7 +163,7 @@ def test_run_sync_json_output_is_machine_readable(tmp_path: Path) -> None:
     assert exit_code == 0
     assert payload["counts"]["update"] == 1
     assert payload["counts"]["create"] == 0
-    assert payload["counts"]["delete_candidate"] == 0
+    assert payload["counts"]["target_only"] == 0
     assert payload["actions"][0]["action"] == "update"
     assert err.getvalue() == ""
 

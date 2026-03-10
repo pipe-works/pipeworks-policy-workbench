@@ -9,6 +9,8 @@ const dom = {
   validationList: document.getElementById("validation-list"),
   syncCounts: document.getElementById("sync-counts"),
   syncPlanState: document.getElementById("sync-plan-state"),
+  syncReviewedState: document.getElementById("sync-reviewed-state"),
+  syncApplyHint: document.getElementById("sync-apply-hint"),
   syncList: document.getElementById("sync-list"),
   syncDiffModal: document.getElementById("sync-diff-modal"),
   syncDiffBackdrop: document.getElementById("sync-diff-backdrop"),
@@ -39,6 +41,10 @@ const state = {
   syncPlanBuiltAt: null,
   syncPlanIsStale: true,
   syncRequestInFlight: false,
+  syncBusyMode: "",
+  currentPlanHasActionable: false,
+  reviewedActionKeys: new Set(),
+  currentPlanActionCount: 0,
   compareContentElements: [],
   syncedCompareIds: new Set(),
   isSyncScrolling: false,
@@ -47,6 +53,12 @@ const state = {
 const THEME_STORAGE_KEY = "ppw-theme";
 const SYNC_REFRESH_LABEL = "Refresh Dry-Run Plan";
 const SYNC_APPLY_LABEL = "Apply Create/Update";
+const SYNC_ACTION_SORT_ORDER = {
+  update: 0,
+  create: 1,
+  target_only: 2,
+  unchanged: 3,
+};
 
 function setStatus(message) {
   dom.statusText.textContent = message;
@@ -76,26 +88,29 @@ function updateSyncPlanStateLine() {
   }
 
   if (!state.syncPlanBuiltAt) {
-    dom.syncPlanState.textContent = "plan: not generated yet";
+    dom.syncPlanState.textContent = "not generated yet";
     return;
   }
 
   const builtText = formatLocalDateTime(state.syncPlanBuiltAt);
   if (state.syncPlanIsStale) {
-    dom.syncPlanState.textContent = `plan: stale | last generated ${builtText}`;
+    dom.syncPlanState.textContent = `stale | last generated ${builtText}`;
     return;
   }
 
-  dom.syncPlanState.textContent = `plan: fresh | generated ${builtText}`;
+  dom.syncPlanState.textContent = `fresh | generated ${builtText}`;
 }
 
 function markSyncPlanStale() {
   state.syncPlanIsStale = true;
   updateSyncPlanStateLine();
+  updateSyncButtonsAvailability();
+  updateSyncApplyHint();
 }
 
 function setSyncButtonsBusy(isBusy, mode = "") {
   state.syncRequestInFlight = isBusy;
+  state.syncBusyMode = isBusy ? mode : "";
 
   if (!dom.btnBuildSync || !dom.btnApplySync) {
     return;
@@ -107,6 +122,55 @@ function setSyncButtonsBusy(isBusy, mode = "") {
   dom.btnApplySync.textContent = isBusy && mode === "apply" ? "Applying..." : SYNC_APPLY_LABEL;
   dom.btnBuildSync.setAttribute("aria-busy", isBusy && mode === "build" ? "true" : "false");
   dom.btnApplySync.setAttribute("aria-busy", isBusy && mode === "apply" ? "true" : "false");
+
+  if (!isBusy) {
+    updateSyncButtonsAvailability();
+  }
+  updateSyncApplyHint();
+}
+
+function updateSyncButtonsAvailability() {
+  if (!dom.btnBuildSync || !dom.btnApplySync || state.syncRequestInFlight) {
+    return;
+  }
+
+  dom.btnBuildSync.disabled = false;
+  const canApply = Boolean(
+    state.syncPlanBuiltAt && !state.syncPlanIsStale && state.currentPlanHasActionable
+  );
+  dom.btnApplySync.disabled = !canApply;
+}
+
+function updateSyncApplyHint() {
+  if (!dom.syncApplyHint) {
+    return;
+  }
+
+  if (state.syncRequestInFlight) {
+    dom.syncApplyHint.textContent = state.syncBusyMode === "apply"
+      ? "Applying create/update actions..."
+      : "Refreshing dry-run plan...";
+    return;
+  }
+
+  if (!state.syncPlanBuiltAt) {
+    dom.syncApplyHint.textContent =
+      "Generate a dry-run plan first. Dry-run previews actions and writes nothing.";
+    return;
+  }
+
+  if (state.syncPlanIsStale) {
+    dom.syncApplyHint.textContent = "Plan is stale after edits. Refresh dry-run plan before apply.";
+    return;
+  }
+
+  if (!state.currentPlanHasActionable) {
+    dom.syncApplyHint.textContent =
+      "No create/update actions to apply. Target-only files are informational only and never auto-deleted.";
+    return;
+  }
+
+  dom.syncApplyHint.textContent = "Ready to apply create/update actions.";
 }
 
 async function fetchSyncPlan(includeUnchanged = false) {
@@ -300,7 +364,7 @@ function renderSyncPlan(plan) {
     create: 0,
     update: 0,
     unchanged: 0,
-    delete_candidate: 0,
+    target_only: 0,
   };
   for (const action of plan.actions) {
     if (Object.prototype.hasOwnProperty.call(visibleCounts, action.action)) {
@@ -308,39 +372,215 @@ function renderSyncPlan(plan) {
     }
   }
 
-  dom.syncCounts.textContent =
-    `visible: create=${visibleCounts.create} update=${visibleCounts.update} ` +
-    `unchanged=${visibleCounts.unchanged} delete_candidate=${visibleCounts.delete_candidate} | ` +
-    `total: create=${plan.counts.create} update=${plan.counts.update} ` +
-    `unchanged=${plan.counts.unchanged} delete_candidate=${plan.counts.delete_candidate}`;
+  renderSyncSummaryChips(plan, visibleCounts);
+  pruneReviewedActionKeys(plan.actions);
 
   state.syncPlanBuiltAt = new Date();
   state.syncPlanIsStale = false;
+  state.currentPlanHasActionable = plan.actions.some(
+    (action) => action.action === "create" || action.action === "update"
+  );
   updateSyncPlanStateLine();
+  updateSyncButtonsAvailability();
+  updateSyncApplyHint();
+  updateReviewedStateLine();
 
   dom.syncList.innerHTML = "";
   if (!plan.actions.length) {
     const item = document.createElement("li");
     item.className = "report-item report-item--info";
-    item.textContent = "No sync actions.";
+    item.textContent = "No visible sync actions. This plan is already aligned for create/update paths.";
     dom.syncList.appendChild(item);
     return;
   }
 
-  for (const action of plan.actions) {
-    const item = document.createElement("li");
-    const severity = action.action === "delete_candidate" ? "warning" : "info";
-    item.className = `report-item report-item--${severity}`;
-    const reason = action.reason ? ` (${action.reason})` : "";
-    const button = document.createElement("button");
-    button.className = "sync-action-button";
-    button.type = "button";
-    button.textContent = `[${action.target}] ${action.action} ${action.relative_path}${reason}`;
-    button.title = "Open source/targets side-by-side compare";
-    button.addEventListener("click", () => showSyncCompare(action));
-    item.appendChild(button);
-    dom.syncList.appendChild(item);
+  const groupedByTarget = groupSyncActionsByTarget(plan.actions);
+  for (const [targetName, actions] of groupedByTarget) {
+    const groupItem = document.createElement("li");
+    groupItem.className = "sync-target-group";
+
+    const details = document.createElement("details");
+    details.className = "sync-target-group__details";
+    details.open = true;
+
+    const summary = document.createElement("summary");
+    summary.className = "sync-target-group__summary";
+
+    const title = document.createElement("span");
+    title.className = "sync-target-group__title";
+    title.textContent = targetName;
+
+    const meta = document.createElement("span");
+    meta.className = "sync-target-group__meta";
+    const groupCounts = countSyncActions(actions);
+    meta.append(
+      buildSyncSummaryPill(`actions ${actions.length}`, "muted"),
+      buildSyncSummaryPill(`update ${groupCounts.update}`, "info"),
+      buildSyncSummaryPill(`create ${groupCounts.create}`, "ok"),
+      buildSyncSummaryPill(`target-only ${groupCounts.target_only}`, "err")
+    );
+    summary.append(title, meta);
+
+    const actionsList = document.createElement("ul");
+    actionsList.className = "sync-target-group__list";
+    for (const action of actions) {
+      actionsList.appendChild(buildSyncActionCard(action));
+    }
+
+    details.append(summary, actionsList);
+    groupItem.appendChild(details);
+    dom.syncList.appendChild(groupItem);
   }
+}
+
+function buildSyncActionCard(action) {
+  const actionKey = buildSyncActionKey(action);
+  const cardItem = document.createElement("li");
+  cardItem.className = "sync-impact-action";
+
+  const tone = action.action === "target_only"
+    ? "err"
+    : (action.action === "create" ? "ok" : "info");
+  cardItem.classList.add(`sync-impact-action--${tone}`);
+
+  const top = document.createElement("div");
+  top.className = "sync-impact-action__top";
+  const badge = document.createElement("span");
+  badge.className = `sync-impact-action__badge sync-impact-action__badge--${tone}`;
+  badge.textContent = action.action;
+  const path = document.createElement("span");
+  path.className = "sync-impact-action__path";
+  path.textContent = action.relative_path;
+  path.title = action.relative_path;
+  top.append(badge, path);
+
+  const reason = document.createElement("div");
+  reason.className = "sync-impact-action__reason";
+  reason.textContent = action.reason || "No additional reason.";
+
+  const controls = document.createElement("div");
+  controls.className = "sync-impact-action__controls";
+
+  const reviewLabel = document.createElement("label");
+  reviewLabel.className = "sync-impact-action__review";
+  const reviewToggle = document.createElement("input");
+  reviewToggle.type = "checkbox";
+  reviewToggle.checked = state.reviewedActionKeys.has(actionKey);
+  const reviewText = document.createElement("span");
+  reviewText.textContent = "Reviewed";
+  reviewLabel.append(reviewToggle, reviewText);
+
+  reviewToggle.addEventListener("change", () => {
+    if (reviewToggle.checked) {
+      state.reviewedActionKeys.add(actionKey);
+    } else {
+      state.reviewedActionKeys.delete(actionKey);
+    }
+    updateReviewedStateLine();
+  });
+
+  const buttonRow = document.createElement("div");
+  buttonRow.className = "sync-impact-action__buttons";
+
+  const compareButton = document.createElement("button");
+  compareButton.className = "btn btn--secondary btn--sm";
+  compareButton.type = "button";
+  compareButton.textContent = "Compare";
+  compareButton.title = "Compare canonical source and targets for this path";
+  compareButton.addEventListener("click", () => showSyncCompare(action));
+
+  const openButton = document.createElement("button");
+  openButton.className = "btn btn--secondary btn--sm";
+  openButton.type = "button";
+  openButton.textContent = action.action === "target_only" ? "Open Target" : "Open Canonical";
+  openButton.title = action.action === "target_only"
+    ? "Open target snapshot in read-only mode"
+    : "Open canonical source file in the editor";
+  openButton.addEventListener("click", () => {
+    void openSyncAction(action);
+  });
+
+  buttonRow.append(compareButton, openButton);
+  controls.append(reviewLabel, buttonRow);
+
+  cardItem.append(top, reason, controls);
+  return cardItem;
+}
+
+function buildSyncActionKey(action) {
+  return `${action.target}::${action.action}::${action.relative_path}`;
+}
+
+function pruneReviewedActionKeys(actions) {
+  const actionKeys = new Set(actions.map((action) => buildSyncActionKey(action)));
+  state.reviewedActionKeys = new Set(
+    [...state.reviewedActionKeys].filter((actionKey) => actionKeys.has(actionKey))
+  );
+  state.currentPlanActionCount = actions.length;
+}
+
+function updateReviewedStateLine() {
+  if (!dom.syncReviewedState) {
+    return;
+  }
+
+  const reviewedCount = state.reviewedActionKeys.size;
+  dom.syncReviewedState.textContent = `${reviewedCount} / ${state.currentPlanActionCount} actions`;
+}
+
+function groupSyncActionsByTarget(actions) {
+  const grouped = new Map();
+  for (const action of actions) {
+    if (!grouped.has(action.target)) {
+      grouped.set(action.target, []);
+    }
+    grouped.get(action.target).push(action);
+  }
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([targetName, groupedActions]) => [
+      targetName,
+      [...groupedActions].sort((left, right) => {
+        const leftRank = SYNC_ACTION_SORT_ORDER[left.action] ?? Number.MAX_SAFE_INTEGER;
+        const rightRank = SYNC_ACTION_SORT_ORDER[right.action] ?? Number.MAX_SAFE_INTEGER;
+        if (leftRank !== rightRank) {
+          return leftRank - rightRank;
+        }
+        return left.relative_path.localeCompare(right.relative_path);
+      }),
+    ]);
+}
+
+function countSyncActions(actions) {
+  const counts = { create: 0, update: 0, unchanged: 0, target_only: 0 };
+  for (const action of actions) {
+    if (Object.prototype.hasOwnProperty.call(counts, action.action)) {
+      counts[action.action] += 1;
+    }
+  }
+  return counts;
+}
+
+function renderSyncSummaryChips(plan, visibleCounts) {
+  if (!dom.syncCounts) {
+    return;
+  }
+
+  dom.syncCounts.innerHTML = "";
+  dom.syncCounts.append(
+    buildSyncSummaryPill(`Updates ${visibleCounts.update}`, "info"),
+    buildSyncSummaryPill(`Creates ${visibleCounts.create}`, "ok"),
+    buildSyncSummaryPill(`Target-only ${visibleCounts.target_only}`, "err"),
+    buildSyncSummaryPill(`Unchanged ${plan.counts.unchanged}`, "muted")
+  );
+}
+
+function buildSyncSummaryPill(text, tone) {
+  const chip = document.createElement("span");
+  chip.className = `sync-summary-chip sync-summary-chip--${tone}`;
+  chip.textContent = text;
+  return chip;
 }
 
 function closeSyncDiffModal() {
@@ -522,6 +762,30 @@ async function openCompareVariantInEditor(variant) {
   dom.fileEditor.value = variant.exists ? variant.content || "" : "<missing file>";
   closeSyncDiffModal();
   setStatus(`Opened ${variant.label} snapshot (${displayPath}) in read-only mode.`);
+}
+
+async function openSyncAction(action) {
+  if (action.action !== "target_only") {
+    await loadFile(action.relative_path);
+    return;
+  }
+
+  setStatus(`Loading ${action.target} snapshot for ${action.relative_path}...`);
+  try {
+    const payload = await fetchJson(
+      `/api/sync-compare?relative_path=${encodeURIComponent(action.relative_path)}&focus_target=${encodeURIComponent(action.target)}`
+    );
+    state.currentCompareRelativePath = payload.relative_path;
+    state.currentComparePath = `pipeworks_web/policies/${payload.relative_path}`;
+    const targetVariant = payload.variants.find((variant) => variant.target === action.target);
+    if (!targetVariant) {
+      setStatus(`Unable to locate target snapshot for ${action.target}.`);
+      return;
+    }
+    await openCompareVariantInEditor(targetVariant);
+  } catch (error) {
+    setStatus(`Open action failed: ${error.message}`);
+  }
 }
 
 function splitLinesForCompare(content) {
@@ -745,6 +1009,7 @@ async function buildSyncPlan() {
     renderSyncPlan(plan);
     setStatus("Sync plan ready.");
   } catch (error) {
+    markSyncPlanStale();
     setStatus(`Sync plan failed: ${error.message}`);
   } finally {
     setSyncButtonsBusy(false);
@@ -756,7 +1021,7 @@ async function applySyncPlan() {
     return;
   }
 
-  if (!window.confirm("Apply create/update sync actions? Delete candidates are not removed.")) {
+  if (!window.confirm("Apply create/update sync actions? Target-only files are not removed.")) {
     return;
   }
 
@@ -784,6 +1049,7 @@ async function init() {
   wireThemeToggle();
   setSyncButtonsBusy(false);
   updateSyncPlanStateLine();
+  updateReviewedStateLine();
   if (dom.syncDiffBackdrop) {
     dom.syncDiffBackdrop.addEventListener("click", closeSyncDiffModal);
   }

@@ -17,7 +17,7 @@ class SyncActionType(StrEnum):
     CREATE = "create"
     UPDATE = "update"
     UNCHANGED = "unchanged"
-    DELETE_CANDIDATE = "delete_candidate"
+    TARGET_ONLY = "target_only"
 
 
 @dataclass(slots=True)

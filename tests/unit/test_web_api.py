@@ -157,12 +157,12 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
         "create": 1,
         "update": 1,
         "unchanged": 1,
-        "delete_candidate": 1,
+        "target_only": 1,
     }
     assert {action["action"] for action in plan_payload["actions"]} == {
         "create",
         "update",
-        "delete_candidate",
+        "target_only",
     }
     assert all(
         Path(action["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}

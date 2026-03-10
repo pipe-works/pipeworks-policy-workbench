@@ -75,14 +75,46 @@
     <hr class="divider" />
 
     <h2 class="panel__heading">Sync Impact</h2>
-    <div class="panel-header-row">
-      <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
-      <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
-    </div>
-    <div id="sync-counts" class="meta-line">create=0 update=0 unchanged=0 delete_candidate=0</div>
-    <div id="sync-plan-state" class="meta-line">plan: not generated yet</div>
-    <div class="list-shell list-shell--compact list-shell--sync">
-      <ul id="sync-list" class="report-list"></ul>
+    <div class="sync-steps" aria-label="Sync workflow">
+      <section class="sync-step sync-step--build" aria-labelledby="sync-step-build-heading">
+        <div class="sync-step__header">
+          <h3 id="sync-step-build-heading" class="sync-step__title">Step 1 · Generate Plan</h3>
+          <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
+        </div>
+        <p class="sync-step__note">Dry-run preview only; no files are changed.</p>
+        <table class="sync-state-table" aria-label="Sync plan state">
+          <tbody>
+          <tr>
+            <th scope="row">Plan</th>
+            <td id="sync-plan-state">not generated yet</td>
+          </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="sync-step sync-step--review" aria-labelledby="sync-step-review-heading">
+        <h3 id="sync-step-review-heading" class="sync-step__title">Step 2 · Review Actions</h3>
+        <div id="sync-counts" class="sync-summary-chips" aria-live="polite"></div>
+        <table class="sync-state-table" aria-label="Review progress">
+          <tbody>
+          <tr>
+            <th scope="row">Reviewed</th>
+            <td id="sync-reviewed-state">0 / 0 actions</td>
+          </tr>
+          </tbody>
+        </table>
+        <div class="list-shell list-shell--compact list-shell--sync">
+          <ul id="sync-list" class="report-list"></ul>
+        </div>
+      </section>
+
+      <section class="sync-step sync-step--apply" aria-labelledby="sync-step-apply-heading">
+        <div class="sync-step__header">
+          <h3 id="sync-step-apply-heading" class="sync-step__title">Step 3 · Apply Changes</h3>
+          <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
+        </div>
+        <div id="sync-apply-hint" class="meta-line">Generate a dry-run plan first.</div>
+      </section>
     </div>
   </section>
 </main>

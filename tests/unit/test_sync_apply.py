@@ -49,7 +49,7 @@ def test_apply_sync_plan_executes_create_update_and_skips_non_destructive(
             SyncAction(
                 target_name="target-a",
                 relative_path="leftover.txt",
-                action=SyncActionType.DELETE_CANDIDATE,
+                action=SyncActionType.TARGET_ONLY,
                 source_path=None,
                 target_path=target_root / "leftover.txt",
                 reason="target-only file",

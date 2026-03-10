@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
+from pipeworks_ipc.hashing import compute_payload_hash
+
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
 from .pathing import resolve_policy_root
@@ -278,7 +280,7 @@ def _counts_for_plan(plan: SyncPlan) -> dict[str, int]:
         SyncActionType.CREATE.value: counts[SyncActionType.CREATE],
         SyncActionType.UPDATE.value: counts[SyncActionType.UPDATE],
         SyncActionType.UNCHANGED.value: counts[SyncActionType.UNCHANGED],
-        SyncActionType.DELETE_CANDIDATE.value: counts[SyncActionType.DELETE_CANDIDATE],
+        SyncActionType.TARGET_ONLY.value: counts[SyncActionType.TARGET_ONLY],
     }
 
 
@@ -349,7 +351,9 @@ def _content_signature(*, source_content: str | None, exists: bool) -> str:
 
     if not exists:
         return "__missing__"
-    return source_content if source_content is not None else "__unreadable__"
+    if source_content is None:
+        return "__unreadable__"
+    return str(compute_payload_hash({"content": source_content}))
 
 
 def _canonical_source_label(source_root: Path) -> str:

@@ -3,7 +3,7 @@
 Phase 2 introduces deterministic sync planning with explicit safety gates:
 - default mode is dry-run
 - apply mode requires an explicit confirmation flag
-- destructive deletes are reported but not executed
+- target-only drift is reported but not executed as deletes
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def _write_text_report(plan: SyncPlan, include_unchanged: bool, out: TextIO) -> 
         f"create={action_counts[SyncActionType.CREATE]} "
         f"update={action_counts[SyncActionType.UPDATE]} "
         f"unchanged={action_counts[SyncActionType.UNCHANGED]} "
-        f"delete_candidate={action_counts[SyncActionType.DELETE_CANDIDATE]}\n"
+        f"target_only={action_counts[SyncActionType.TARGET_ONLY]}\n"
     )
 
     for action in plan.actions:
@@ -159,5 +159,5 @@ def _counts_payload(actions: list[SyncAction]) -> dict[str, int]:
         SyncActionType.CREATE.value: counts[SyncActionType.CREATE],
         SyncActionType.UPDATE.value: counts[SyncActionType.UPDATE],
         SyncActionType.UNCHANGED.value: counts[SyncActionType.UNCHANGED],
-        SyncActionType.DELETE_CANDIDATE.value: counts[SyncActionType.DELETE_CANDIDATE],
+        SyncActionType.TARGET_ONLY.value: counts[SyncActionType.TARGET_ONLY],
     }

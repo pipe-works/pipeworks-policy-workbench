@@ -49,7 +49,7 @@ CLI behavior highlights:
 - both `doctor` and `validate` accept `--root` to validate alternate fixture trees
 - `pw-policy sync` defaults to dry-run planning and uses `config/mirror_map.yaml` as mapping contract
 - `pw-policy sync --format json` emits machine-readable action payloads for automation
-- `pw-policy sync --apply --yes` applies create/update actions only and leaves delete candidates untouched by default
+- `pw-policy sync --apply --yes` applies create/update actions only and leaves target-only files untouched by default
 
 `pw-policy serve` behavior:
 - binds to the first unused port in `8000-8099`
