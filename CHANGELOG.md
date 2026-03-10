@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.3...pipeworks-policy-workbench-v0.1.4) (2026-03-10)
+
+
+### Fixes
+
+* **web:** polish phase 3 tree, validation, and sync UX ([ce5cc92](https://github.com/pipe-works/pipeworks-policy-workbench/commit/ce5cc923c127327ca4ffd2b507e9e155acc8cf08))
+* **web:** polish phase 3 tree, validation, and sync UX ([a0d635f](https://github.com/pipe-works/pipeworks-policy-workbench/commit/a0d635f888f716dc944ed2f7311a0ceff62aff49))
+
 ## [0.1.3](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.2...pipeworks-policy-workbench-v0.1.3) (2026-03-09)
 
 
