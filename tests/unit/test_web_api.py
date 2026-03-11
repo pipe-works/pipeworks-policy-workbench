@@ -90,6 +90,14 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
     _write_text(source_root / "image" / "notes.md", "ignored markdown file")
     _write_text(
+        source_root / "image" / "descriptor_layers" / "id_card_v1.yaml",
+        "references:\n  - policy_id: species_block:image.blocks.species:goblin\n    variant: v1\n",
+    )
+    _write_text(
+        source_root / "image" / "registries" / "species_registry.yaml",
+        "entries:\n  - block_path: policies/image/blocks/species/goblin_v1.yaml\n",
+    )
+    _write_text(
         source_root / "image" / "tone_profiles" / "ledger_engraving_v1.json",
         '{"prompt_block":"Etched metallic texture."}',
     )
@@ -130,6 +138,28 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     assert tone_profile_artifact["namespace"] == "image.tone_profiles"
     assert tone_profile_artifact["policy_key"] == "ledger_engraving"
     assert tone_profile_artifact["variant"] == "v1"
+
+    descriptor_layer_artifact = next(
+        item
+        for item in tree_payload["artifacts"]
+        if item["relative_path"] == "image/descriptor_layers/id_card_v1.yaml"
+    )
+    assert descriptor_layer_artifact["is_authorable"] is True
+    assert descriptor_layer_artifact["policy_type"] == "descriptor_layer"
+    assert descriptor_layer_artifact["namespace"] == "image.descriptor_layers"
+    assert descriptor_layer_artifact["policy_key"] == "id_card"
+    assert descriptor_layer_artifact["variant"] == "v1"
+
+    registry_artifact = next(
+        item
+        for item in tree_payload["artifacts"]
+        if item["relative_path"] == "image/registries/species_registry.yaml"
+    )
+    assert registry_artifact["is_authorable"] is True
+    assert registry_artifact["policy_type"] == "registry"
+    assert registry_artifact["namespace"] == "image.registries"
+    assert registry_artifact["policy_key"] == "species_registry"
+    assert registry_artifact["variant"] == "v1"
 
     assert all(
         Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml", ".json"}
