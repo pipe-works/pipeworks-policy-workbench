@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.8](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.7...pipeworks-policy-workbench-v0.1.8) (2026-03-11)
+
+
+### Features
+
+* **workbench:** add descriptor-layer and registry authoring support ([d58c777](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d58c7773eb8f18b3d999dfd6c8308171923ed4a1))
+* **workbench:** add layer2 selector and registry inference support ([421e5d2](https://github.com/pipe-works/pipeworks-policy-workbench/commit/421e5d220c3fffe7279d6ff4e1eee575a7d24d75))
+* **workbench:** support prompt and tone-profile api authoring ([171d8fc](https://github.com/pipe-works/pipeworks-policy-workbench/commit/171d8fc0b8831665d772c3b63db1c61a844efe9f))
+* **workbench:** support prompt and tone-profile API authoring ([1a0a0a6](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1a0a0a6fc8e8fb5a3cb68caebbe72b10dcadafbe))
+* **workbench:** switch runtime saves to mud-server policy api ([#19](https://github.com/pipe-works/pipeworks-policy-workbench/issues/19)) ([d6ee4f3](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d6ee4f3800398c35f2a7e833abfd11732c25c174))
+
 ## [0.1.7](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.6...pipeworks-policy-workbench-v0.1.7) (2026-03-10)
 
 
