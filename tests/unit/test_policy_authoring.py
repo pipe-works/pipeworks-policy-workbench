@@ -124,7 +124,7 @@ def test_save_species_block_from_yaml_runs_validate_then_upsert_then_activate(mo
             return {"policy_version": 4, "content_hash": "hash-4"}
         if "/policy-activations" in url:
             return {"audit_event_id": 500}
-        raise AssertionError(f"Unexpected URL: {url}")
+        raise AssertionError(f"Unexpected URL: {url}")  # pragma: no cover
 
     monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
     monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 4)
@@ -169,7 +169,7 @@ def test_save_policy_variant_from_raw_content_supports_prompt_text(monkeypatch) 
             return {"is_valid": True, "validation_run_id": 12}
         if "/variants/" in kwargs["url"]:
             return {"policy_version": 5, "content_hash": "hash-prompt"}
-        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
 
     monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
     monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 5)
@@ -216,6 +216,43 @@ def test_save_policy_variant_from_raw_content_rejects_invalid_tone_profile_json(
         )
 
 
+def test_save_policy_variant_from_raw_content_rejects_tone_profile_non_object_json() -> None:
+    """Tone-profile save should reject valid JSON that is not an object payload."""
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="tone_profile",
+                namespace="image.tone_profiles",
+                policy_key="ledger_engraving",
+                variant="v1",
+            ),
+            raw_content='["not-an-object"]',
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
+
+
+def test_build_policy_content_from_raw_accepts_tone_profile_object_payload() -> None:
+    """Tone-profile content builder should accept valid JSON object payload text."""
+    content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+        selector=PolicySelector(
+            policy_type="tone_profile",
+            namespace="image.tone_profiles",
+            policy_key="ledger_engraving",
+            variant="v1",
+        ),
+        raw_content='{"prompt_block":"Etched metallic texture."}',
+    )
+    assert content == {"prompt_block": "Etched metallic texture."}
+
+
 def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() -> None:
     """Generic save helper should reject policy types outside implemented mappings."""
     with pytest.raises(ValueError, match="supports only policy_type values"):
@@ -259,7 +296,7 @@ def test_save_policy_variant_from_raw_content_supports_descriptor_layer_referenc
             return {"is_valid": True, "validation_run_id": 77}
         if "/variants/" in kwargs["url"]:
             return {"policy_version": 2, "content_hash": "hash-layer2"}
-        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
 
     monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
     monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 2)
@@ -311,7 +348,7 @@ def test_save_policy_variant_from_raw_content_supports_registry_legacy_inference
             return {"is_valid": True, "validation_run_id": 32}
         if "/variants/" in kwargs["url"]:
             return {"policy_version": 1, "content_hash": "hash-registry"}
-        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
 
     monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
     monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 1)
@@ -351,6 +388,29 @@ def test_save_policy_variant_from_raw_content_rejects_registry_without_reference
                 variant="v1",
             ),
             raw_content="registry:\n  id: clothing_registry\n",
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
+
+
+def test_save_policy_variant_from_raw_content_rejects_descriptor_layer_non_object_payload() -> None:
+    """Descriptor-layer save should reject structured payloads that are not mapping objects."""
+    with pytest.raises(ValueError, match="descriptor_layer raw_content must be a YAML/JSON object"):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="descriptor_layer",
+                namespace="image.descriptor_layers",
+                policy_key="id_card",
+                variant="v1",
+            ),
+            raw_content='["not-an-object"]',
             schema_version="1.0",
             status="draft",
             activate=False,
@@ -621,6 +681,35 @@ def test_layer2_parsing_helpers_cover_error_branches() -> None:
             references=[{"policy_id": "", "variant": "v1"}],
             policy_type="registry",
         )
+
+    with pytest.raises(ValueError, match="variant is required"):
+        policy_authoring._normalize_reference_entries(  # noqa: SLF001
+            references=[{"policy_id": "species_block:image.blocks.species:goblin", "variant": ""}],
+            policy_type="registry",
+        )
+
+
+def test_registry_inference_helpers_cover_slots_duplicates_and_unresolved_paths() -> None:
+    """Registry inference should skip invalid/duplicate/unresolved path candidates."""
+    inferred = policy_authoring._infer_registry_references_from_legacy_payload(  # noqa: SLF001
+        payload={
+            "entries": [
+                42,
+                {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+                {"block_path": "image/blocks/clothing/workwear_v1.txt"},
+            ],
+            "slots": {
+                "environment": [
+                    {"block_path": "policies/image/blocks/species/goblin_v1.yaml"},
+                    {"prompt_path": "translation/prompts/ic/default_v2.txt"},
+                ]
+            },
+        }
+    )
+    assert inferred == [
+        {"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"},
+        {"policy_id": "prompt:translation.prompts.ic:default", "variant": "v2"},
+    ]
 
 
 def test_policy_reference_from_legacy_path_maps_supported_layer1_paths() -> None:
