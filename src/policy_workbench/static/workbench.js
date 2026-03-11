@@ -11,6 +11,11 @@ const dom = {
   inventoryStatus: document.getElementById("inventory-status"),
   inventoryCount: document.getElementById("inventory-count"),
   inventoryList: document.getElementById("inventory-list"),
+  activationEnable: document.getElementById("activation-enable"),
+  activationWorldId: document.getElementById("activation-world-id"),
+  activationClientProfile: document.getElementById("activation-client-profile"),
+  activationScopeLabel: document.getElementById("activation-scope-label"),
+  activationList: document.getElementById("activation-list"),
   btnToggleTree: document.getElementById("btn-toggle-tree"),
   btnExpandTree: document.getElementById("btn-expand-tree"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -51,6 +56,7 @@ const dom = {
   btnCopyHash: document.getElementById("btn-copy-hash"),
   btnSaveFile: document.getElementById("btn-save-file"),
   btnReloadFile: document.getElementById("btn-reload-file"),
+  btnRefreshActivation: document.getElementById("btn-refresh-activation"),
   btnRunValidation: document.getElementById("btn-run-validation"),
   btnBuildSync: document.getElementById("btn-build-sync"),
   btnApplySync: document.getElementById("btn-apply-sync"),
@@ -82,6 +88,7 @@ const state = {
   isSyncScrolling: false,
   treeCollapsed: false,
   activeSyncStep: "build",
+  latestActivationPayload: null,
 };
 
 const THEME_STORAGE_KEY = "ppw-theme";
@@ -681,6 +688,115 @@ async function loadPolicyObject(policyId, variant = "") {
     setStatus(`Loaded ${payload.policy_id}:${payload.variant} from mud-server API.`);
   } catch (error) {
     setStatus(`Policy object load failed: ${error.message}`);
+  }
+}
+
+function readActivationScopeInputs() {
+  const worldId = (dom.activationWorldId?.value || "").trim();
+  const clientProfile = (dom.activationClientProfile?.value || "").trim();
+  return {
+    worldId,
+    clientProfile,
+    scope: clientProfile ? `${worldId}:${clientProfile}` : worldId,
+  };
+}
+
+function updateActivationScopeLabel() {
+  if (!dom.activationScopeLabel) {
+    return;
+  }
+  const { worldId, clientProfile } = readActivationScopeInputs();
+  if (!worldId) {
+    dom.activationScopeLabel.textContent = "scope: <missing world_id>";
+    return;
+  }
+  dom.activationScopeLabel.textContent = clientProfile
+    ? `scope: ${worldId}:${clientProfile}`
+    : `scope: ${worldId}`;
+}
+
+function renderActivationMessage(message, tone = "info") {
+  if (!dom.activationList) {
+    return;
+  }
+  dom.activationList.innerHTML = "";
+  const item = document.createElement("li");
+  item.className = `report-item report-item--${tone}`;
+  item.textContent = message;
+  dom.activationList.appendChild(item);
+}
+
+function renderActivationScopePayload(payload) {
+  state.latestActivationPayload = payload;
+  if (!dom.activationList) {
+    return;
+  }
+
+  const items = Array.isArray(payload?.items) ? payload.items : [];
+  dom.activationList.innerHTML = "";
+  if (!items.length) {
+    renderActivationMessage("No active mappings for this scope yet.");
+    return;
+  }
+
+  const sortedItems = [...items].sort((left, right) => {
+    const leftPolicyId = String(left.policy_id || "");
+    const rightPolicyId = String(right.policy_id || "");
+    return leftPolicyId.localeCompare(rightPolicyId);
+  });
+
+  for (const itemRow of sortedItems) {
+    const policyId = String(itemRow.policy_id || "<unknown-policy>");
+    const variant = String(itemRow.variant || "<unknown-variant>");
+    const activatedAt = String(itemRow.activated_at || "").trim();
+    const activatedBy = String(itemRow.activated_by || "").trim();
+    const suffixParts = [];
+    if (activatedAt) {
+      suffixParts.push(activatedAt);
+    }
+    if (activatedBy) {
+      suffixParts.push(`by ${activatedBy}`);
+    }
+    const suffix = suffixParts.length ? ` · ${suffixParts.join(" · ")}` : "";
+
+    const item = document.createElement("li");
+    item.className = "report-item report-item--info";
+    item.textContent = `${policyId}:${variant}${suffix}`;
+    dom.activationList.appendChild(item);
+  }
+}
+
+async function refreshActivationScope({ silent = false } = {}) {
+  const { worldId, scope } = readActivationScopeInputs();
+  updateActivationScopeLabel();
+  if (!worldId) {
+    renderActivationMessage("Enter world_id before loading activation mappings.", "warning");
+    if (!silent) {
+      setStatus("Activation mapping load skipped: world_id is required.");
+    }
+    return null;
+  }
+
+  if (!silent) {
+    setStatus(`Loading activation mappings for scope ${scope}...`);
+  }
+  try {
+    const query = new URLSearchParams({
+      scope,
+      effective: "true",
+    });
+    const payload = await fetchJson(`/api/policy-activations-live?${query.toString()}`);
+    renderActivationScopePayload(payload);
+    if (!silent) {
+      const itemCount = Array.isArray(payload?.items) ? payload.items.length : 0;
+      setStatus(`Activation mappings loaded for ${scope} (${itemCount} entries).`);
+    }
+    return payload;
+  } catch (error) {
+    if (!silent) {
+      setStatus(`Activation mapping load failed: ${error.message}`);
+    }
+    return null;
   }
 }
 
@@ -1493,25 +1609,55 @@ async function saveCurrentFile() {
     return;
   }
 
+  const activateAfterSave = Boolean(dom.activationEnable?.checked);
+  const activationScope = readActivationScopeInputs();
+  if (activateAfterSave && !activationScope.worldId) {
+    setStatus("Cannot activate after save: world_id is required.");
+    return;
+  }
+
   const targetLabel = state.selectedPath || buildPolicySelectorLabel(state.selectedArtifact);
-  setStatus(`Saving ${targetLabel} via mud-server policy API...`);
+  setStatus(
+    activateAfterSave
+      ? `Saving ${targetLabel} and activating ${activationScope.scope}...`
+      : `Saving ${targetLabel} via mud-server policy API...`
+  );
   try {
+    const savePayload = {
+      policy_type: state.selectedArtifact.policy_type,
+      namespace: state.selectedArtifact.namespace,
+      policy_key: state.selectedArtifact.policy_key,
+      variant: state.selectedArtifact.variant,
+      raw_content: dom.fileEditor.value,
+      schema_version: "1.0",
+      status: "draft",
+      activate: activateAfterSave,
+    };
+    if (activateAfterSave) {
+      savePayload.world_id = activationScope.worldId;
+      if (activationScope.clientProfile) {
+        savePayload.client_profile = activationScope.clientProfile;
+      }
+    }
+
     const saveResult = await fetchJson("/api/policy-save", {
       method: "POST",
-      body: JSON.stringify({
-        policy_type: state.selectedArtifact.policy_type,
-        namespace: state.selectedArtifact.namespace,
-        policy_key: state.selectedArtifact.policy_key,
-        variant: state.selectedArtifact.variant,
-        raw_content: dom.fileEditor.value,
-        schema_version: "1.0",
-        status: "draft",
-        activate: false,
-      }),
+      body: JSON.stringify(savePayload),
     });
-    setStatus(
-      `Saved ${saveResult.policy_id}:${saveResult.variant} (v${saveResult.policy_version}).`
-    );
+
+    let statusMessage = `Saved ${saveResult.policy_id}:${saveResult.variant} (v${saveResult.policy_version}).`;
+    if (activateAfterSave) {
+      const activationPayload = await refreshActivationScope({ silent: true });
+      const mappingCount = Array.isArray(activationPayload?.items)
+        ? activationPayload.items.length
+        : null;
+      if (mappingCount === null) {
+        statusMessage = `${statusMessage} Activated for scope ${activationScope.scope}.`;
+      } else {
+        statusMessage = `${statusMessage} Activated for scope ${activationScope.scope} (${mappingCount} mappings).`;
+      }
+    }
+    setStatus(statusMessage);
     if (state.selectedPolicyRecord) {
       await loadPolicyObject(saveResult.policy_id, saveResult.variant);
     }
@@ -1597,6 +1743,8 @@ async function init() {
   wireSyncTabs();
   setActiveSyncStep("build");
   setTreeCollapsed(false);
+  updateActivationScopeLabel();
+  renderActivationMessage("Select a scope and click Refresh Scope Mapping.");
   setHashButtonBusy(false);
   if (dom.btnCopyHash) {
     dom.btnCopyHash.disabled = true;
@@ -1661,6 +1809,17 @@ async function init() {
     dom.inventoryStatus.addEventListener("change", () => {
       void refreshPolicyInventory();
     });
+  }
+  if (dom.btnRefreshActivation) {
+    dom.btnRefreshActivation.addEventListener("click", () => {
+      void refreshActivationScope();
+    });
+  }
+  if (dom.activationWorldId) {
+    dom.activationWorldId.addEventListener("input", updateActivationScopeLabel);
+  }
+  if (dom.activationClientProfile) {
+    dom.activationClientProfile.addEventListener("input", updateActivationScopeLabel);
   }
   if (dom.btnRefreshHash) {
     dom.btnRefreshHash.addEventListener("click", refreshHashStatus);
