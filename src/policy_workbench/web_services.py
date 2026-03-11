@@ -7,7 +7,9 @@ import os
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
+from typing import cast
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from pipeworks_ipc.hashing import compute_payload_hash
@@ -24,7 +26,12 @@ from .web_models import (
     HashCanonicalResponse,
     HashStatusResponse,
     HashTargetStatusResponse,
+    PolicyActivationScopeResponse,
     PolicyArtifactResponse,
+    PolicyInventoryResponse,
+    PolicyObjectDetailResponse,
+    PolicyObjectSummaryResponse,
+    PolicyPublishRunProxyResponse,
     PolicyTreeResponse,
     SyncActionResponse,
     SyncCompareResponse,
@@ -38,6 +45,9 @@ _EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml", ".json"}
 _HASH_VERSION = "policy_tree_hash_v1"
 _DEFAULT_CANONICAL_HASH_URL = "http://127.0.0.1:8000/api/policy/hash-snapshot"
 _CANONICAL_HASH_URL_ENV = "PW_POLICY_HASH_SNAPSHOT_URL"
+_DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
+_MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
+_MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
 
 try:
     import pipeworks_ipc.hashing as ipc_hashing
@@ -51,6 +61,15 @@ class _PolicyHashEntry:
 
     relative_path: str
     content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class _MudApiRuntimeConfig:
+    """Runtime config used for mud-server API-first inventory proxy calls."""
+
+    base_url: str
+    session_id: str
+    timeout_seconds: float = 8.0
 
 
 def resolve_source_root_for_web(
@@ -110,6 +129,129 @@ def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
         source_root=str(snapshot.root),
         directories=sorted(directory_set),
         artifacts=artifacts,
+    )
+
+
+def build_policy_inventory_payload(
+    *,
+    policy_type: str | None,
+    namespace: str | None,
+    status: str | None,
+    session_id_override: str | None,
+) -> PolicyInventoryResponse:
+    """Build API-first policy inventory payload from mud-server canonical API."""
+    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+
+    query_params: dict[str, str] = {}
+    if (policy_type or "").strip():
+        query_params["policy_type"] = str(policy_type).strip()
+    if (namespace or "").strip():
+        query_params["namespace"] = str(namespace).strip()
+    if (status or "").strip():
+        query_params["status"] = str(status).strip()
+
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policies",
+        query_params=query_params,
+    )
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("Mud policy inventory payload must include 'items' list.")
+
+    items: list[PolicyObjectSummaryResponse] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise ValueError("Mud policy inventory items must be JSON objects.")
+        detail = PolicyObjectDetailResponse.model_validate(raw_item)
+        items.append(
+            PolicyObjectSummaryResponse(
+                policy_id=detail.policy_id,
+                policy_type=detail.policy_type,
+                namespace=detail.namespace,
+                policy_key=detail.policy_key,
+                variant=detail.variant,
+                schema_version=detail.schema_version,
+                policy_version=detail.policy_version,
+                status=detail.status,
+                content_hash=detail.content_hash,
+                updated_at=detail.updated_at,
+                updated_by=detail.updated_by,
+            )
+        )
+
+    return PolicyInventoryResponse(
+        filters={
+            "policy_type": query_params.get("policy_type"),
+            "namespace": query_params.get("namespace"),
+            "status": query_params.get("status"),
+        },
+        item_count=len(items),
+        items=items,
+    )
+
+
+def build_policy_object_detail_payload(
+    *,
+    policy_id: str,
+    variant: str | None,
+    session_id_override: str | None,
+) -> PolicyObjectDetailResponse:
+    """Build API-first detail payload for one policy object variant."""
+    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    query_params: dict[str, str] = {}
+    if (variant or "").strip():
+        query_params["variant"] = str(variant).strip()
+
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path=f"/api/policies/{quote(policy_id, safe='')}",
+        query_params=query_params,
+    )
+    return cast(PolicyObjectDetailResponse, PolicyObjectDetailResponse.model_validate(payload))
+
+
+def build_policy_activation_scope_payload(
+    *,
+    scope: str,
+    effective: bool,
+    session_id_override: str | None,
+) -> PolicyActivationScopeResponse:
+    """Build activation-scope payload from mud-server policy activation API."""
+    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policy-activations",
+        query_params={
+            "scope": scope,
+            "effective": "true" if effective else "false",
+        },
+    )
+    return cast(
+        PolicyActivationScopeResponse,
+        PolicyActivationScopeResponse.model_validate(payload),
+    )
+
+
+def build_policy_publish_run_payload(
+    *,
+    publish_run_id: int,
+    session_id_override: str | None,
+) -> PolicyPublishRunProxyResponse:
+    """Build publish-run payload proxy from mud-server canonical publish API."""
+    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path=f"/api/policy-publish/{publish_run_id}",
+        query_params={},
+    )
+    return cast(
+        PolicyPublishRunProxyResponse,
+        PolicyPublishRunProxyResponse.model_validate(payload),
     )
 
 
@@ -359,6 +501,70 @@ def build_hash_status_payload(
         canonical_error=canonical_error,
         targets=target_statuses,
     )
+
+
+def _resolve_mud_api_runtime_config(*, session_id_override: str | None) -> _MudApiRuntimeConfig:
+    """Resolve mud-server API runtime config from env vars and optional session override."""
+    base_url = os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL).strip().rstrip("/")
+    if not base_url:
+        raise ValueError("Mud API base URL must not be empty.")
+
+    session_candidate = (
+        session_id_override
+        if session_id_override is not None
+        else os.getenv(_MUD_API_SESSION_ID_ENV, "")
+    )
+    session_id = (session_candidate or "").strip()
+    if not session_id:
+        raise ValueError("Mud API session id is required (PW_POLICY_MUD_SESSION_ID).")
+
+    return _MudApiRuntimeConfig(base_url=base_url, session_id=session_id)
+
+
+def _fetch_mud_api_json(
+    *,
+    runtime: _MudApiRuntimeConfig,
+    method: str,
+    path: str,
+    query_params: dict[str, str],
+) -> dict[str, object]:
+    """Issue one mud-server API request and return parsed JSON object payload."""
+    normalized_query = {key: value for key, value in query_params.items() if value}
+    normalized_query["session_id"] = runtime.session_id
+    query = urlencode(normalized_query, doseq=False)
+    url = f"{runtime.base_url}{path}?{query}" if query else f"{runtime.base_url}{path}"
+    request = Request(url=url, method=method, headers={"Accept": "application/json"})
+
+    try:
+        with urlopen(request, timeout=runtime.timeout_seconds) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = _mud_api_http_error_detail(exc)
+        raise ValueError(f"Mud API request failed ({method} {url}): {detail}") from exc
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Mud API request failed ({method} {url}): {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Mud API response for {method} {url} must be a JSON object.")
+    return payload
+
+
+def _mud_api_http_error_detail(exc: HTTPError) -> str:
+    """Extract best-effort detail from mud-server API HTTP error payloads."""
+    default_detail = f"HTTP {exc.code}"
+    try:
+        payload = json.loads(exc.read().decode("utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default_detail
+
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        code = payload.get("code")
+        if detail and code:
+            return f"{code}: {detail}"
+        if detail:
+            return str(detail)
+    return default_detail
 
 
 def _resolve_canonical_hash_snapshot_url(url_override: str | None) -> str:

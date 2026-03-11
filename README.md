@@ -60,6 +60,12 @@ Phase 2 web authoring behavior:
 - workbench runtime saves now go through mud-server policy APIs (`validate -> save -> optional activate`)
 - direct filesystem writes through `PUT /api/file` are disabled by design
 - current authoring pilot mapping is `species_block` (`image/blocks/species/*_v*.yaml`)
+- center panel now includes API-first policy inventory filters/selectors (`policy_type`, `namespace`, `status`)
+- inventory-backed object loading uses:
+  - `GET /api/policies`
+  - `GET /api/policies/{policy_id}`
+  - `GET /api/policy-activations-live`
+  - `GET /api/policy-publish-runs/{publish_run_id}`
 - configure mud-server connectivity with:
   - `PW_POLICY_MUD_API_BASE_URL` (default: `http://127.0.0.1:8000`)
   - `PW_POLICY_MUD_SESSION_ID` (required unless provided in request payload)

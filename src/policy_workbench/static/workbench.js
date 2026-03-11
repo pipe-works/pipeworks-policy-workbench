@@ -6,6 +6,11 @@ const dom = {
   treeList: document.getElementById("tree-list"),
   editorPath: document.getElementById("editor-path"),
   fileEditor: document.getElementById("file-editor"),
+  inventoryPolicyType: document.getElementById("inventory-policy-type"),
+  inventoryNamespace: document.getElementById("inventory-namespace"),
+  inventoryStatus: document.getElementById("inventory-status"),
+  inventoryCount: document.getElementById("inventory-count"),
+  inventoryList: document.getElementById("inventory-list"),
   btnToggleTree: document.getElementById("btn-toggle-tree"),
   btnExpandTree: document.getElementById("btn-expand-tree"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -41,6 +46,7 @@ const dom = {
   statusText: document.getElementById("status-text"),
   statusSource: document.getElementById("status-source"),
   btnRefreshTree: document.getElementById("btn-refresh-tree"),
+  btnRefreshInventory: document.getElementById("btn-refresh-inventory"),
   btnRefreshHash: document.getElementById("btn-refresh-hash"),
   btnCopyHash: document.getElementById("btn-copy-hash"),
   btnSaveFile: document.getElementById("btn-save-file"),
@@ -53,7 +59,9 @@ const dom = {
 const state = {
   selectedPath: "",
   selectedArtifact: null,
+  selectedPolicyRecord: null,
   fileIndex: [],
+  inventoryItems: [],
   sourceRoot: "",
   directoriesCount: 0,
   currentComparePath: "",
@@ -521,6 +529,159 @@ async function fetchJson(url, options = {}) {
   }
 
   return response.json();
+}
+
+function buildPolicyInventoryQueryString() {
+  const query = new URLSearchParams();
+  const policyType = (dom.inventoryPolicyType?.value || "").trim();
+  const namespace = (dom.inventoryNamespace?.value || "").trim();
+  const status = (dom.inventoryStatus?.value || "").trim();
+  if (policyType) {
+    query.set("policy_type", policyType);
+  }
+  if (namespace) {
+    query.set("namespace", namespace);
+  }
+  if (status) {
+    query.set("status", status);
+  }
+  return query.toString();
+}
+
+function buildPolicySelectorLabel(item) {
+  return `${item.policy_type}:${item.namespace}:${item.policy_key}:${item.variant}`;
+}
+
+function selectedPolicyKey() {
+  if (!state.selectedPolicyRecord) {
+    return "";
+  }
+  return `${state.selectedPolicyRecord.policy_id}:${state.selectedPolicyRecord.variant}`;
+}
+
+function setEditorFromPolicyRecord(policy) {
+  state.selectedPolicyRecord = policy;
+  state.selectedPath = "";
+  state.selectedArtifact = {
+    policy_type: policy.policy_type,
+    namespace: policy.namespace,
+    policy_key: policy.policy_key,
+    variant: policy.variant,
+    is_authorable: true,
+  };
+  setEditorReadOnlyMode(false);
+  dom.editorPath.textContent = `${policy.policy_id}:${policy.variant} · api-first`;
+  dom.editorPath.title =
+    `${policy.policy_id}:${policy.variant}\nstatus=${policy.status} version=${policy.policy_version}`;
+  dom.fileEditor.value = buildRawEditorContentFromPolicy(policy);
+}
+
+function buildSpeciesYamlFromText(textValue) {
+  const normalized = String(textValue || "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const lines = normalized.split("\n");
+  return `text: |\n${lines.map((line) => `  ${line}`).join("\n")}`;
+}
+
+function buildRawEditorContentFromPolicy(policy) {
+  const content = policy.content || {};
+  if (policy.policy_type === "species_block") {
+    return buildSpeciesYamlFromText(content.text || "");
+  }
+  if (policy.policy_type === "prompt") {
+    return String(content.text || "");
+  }
+  if (policy.policy_type === "tone_profile") {
+    return JSON.stringify(content, null, 2);
+  }
+  if (policy.policy_type === "descriptor_layer" || policy.policy_type === "registry") {
+    return JSON.stringify(content, null, 2);
+  }
+  return JSON.stringify(content, null, 2);
+}
+
+function renderPolicyInventory(items) {
+  state.inventoryItems = items;
+  if (dom.inventoryCount) {
+    dom.inventoryCount.textContent = `${items.length} policies`;
+  }
+  if (!dom.inventoryList) {
+    return;
+  }
+
+  dom.inventoryList.innerHTML = "";
+  if (!items.length) {
+    const item = document.createElement("li");
+    item.className = "report-item report-item--info";
+    item.textContent = "No policies matched current filters.";
+    dom.inventoryList.appendChild(item);
+    return;
+  }
+
+  const selectedKey = selectedPolicyKey();
+  for (const itemRow of items) {
+    const item = document.createElement("li");
+    item.className = "inventory-item";
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "inventory-item__button";
+    const rowKey = `${itemRow.policy_id}:${itemRow.variant}`;
+    if (rowKey === selectedKey) {
+      button.classList.add("is-active");
+    }
+    button.title = buildPolicySelectorLabel(itemRow);
+    button.addEventListener("click", () => {
+      void loadPolicyObject(itemRow.policy_id, itemRow.variant);
+    });
+
+    const top = document.createElement("div");
+    top.className = "inventory-item__top";
+    const selector = document.createElement("span");
+    selector.className = "inventory-item__selector";
+    selector.textContent = buildPolicySelectorLabel(itemRow);
+    const status = document.createElement("span");
+    status.className = "inventory-item__status";
+    status.textContent = itemRow.status;
+    top.append(selector, status);
+
+    const meta = document.createElement("div");
+    meta.className = "inventory-item__meta";
+    meta.textContent = `v${itemRow.policy_version} · ${itemRow.updated_at}`;
+
+    button.append(top, meta);
+    item.append(button);
+    dom.inventoryList.appendChild(item);
+  }
+}
+
+async function refreshPolicyInventory() {
+  setStatus("Loading API-first policy inventory...");
+  try {
+    const query = buildPolicyInventoryQueryString();
+    const suffix = query ? `?${query}` : "";
+    const payload = await fetchJson(`/api/policies${suffix}`);
+    renderPolicyInventory(payload.items || []);
+    setStatus(`Policy inventory loaded (${payload.item_count || 0} items).`);
+  } catch (error) {
+    setStatus(`Policy inventory load failed: ${error.message}`);
+  }
+}
+
+async function loadPolicyObject(policyId, variant = "") {
+  setStatus(`Loading policy object ${policyId}:${variant || "latest"}...`);
+  try {
+    const query = new URLSearchParams();
+    if ((variant || "").trim()) {
+      query.set("variant", variant.trim());
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const payload = await fetchJson(`/api/policies/${encodeURIComponent(policyId)}${suffix}`);
+    setEditorFromPolicyRecord(payload);
+    renderPolicyInventory(state.inventoryItems);
+    setStatus(`Loaded ${payload.policy_id}:${payload.variant} from mud-server API.`);
+  } catch (error) {
+    setStatus(`Policy object load failed: ${error.message}`);
+  }
 }
 
 function renderTree(artifacts, sourceRoot, directoriesCount) {
@@ -1108,6 +1269,7 @@ async function openCompareVariantInEditor(variant) {
   }
 
   state.selectedPath = "";
+  state.selectedPolicyRecord = null;
   setEditorReadOnlyMode(true);
   dom.editorPath.textContent = `${variant.label} (read-only)`;
   dom.editorPath.title = `${variant.label}: ${displayPath}`;
@@ -1298,6 +1460,7 @@ function selectedPolicyLabel(artifact) {
 
 async function loadFile(relativePath, artifact = null) {
   state.selectedPath = relativePath;
+  state.selectedPolicyRecord = null;
   state.selectedArtifact = artifact || state.fileIndex.find(
     (entry) => entry.relative_path === relativePath
   ) || null;
@@ -1325,16 +1488,13 @@ async function loadFile(relativePath, artifact = null) {
 }
 
 async function saveCurrentFile() {
-  if (!state.selectedPath) {
-    setStatus("Select a file before saving.");
-    return;
-  }
   if (!state.selectedArtifact || !state.selectedArtifact.is_authorable) {
-    setStatus("Selected file is read-only in Phase 2 (no canonical policy selector mapping).");
+    setStatus("Select an authorable policy object or mapped file before saving.");
     return;
   }
 
-  setStatus(`Saving ${state.selectedPath} via mud-server policy API...`);
+  const targetLabel = state.selectedPath || buildPolicySelectorLabel(state.selectedArtifact);
+  setStatus(`Saving ${targetLabel} via mud-server policy API...`);
   try {
     const saveResult = await fetchJson("/api/policy-save", {
       method: "POST",
@@ -1352,6 +1512,9 @@ async function saveCurrentFile() {
     setStatus(
       `Saved ${saveResult.policy_id}:${saveResult.variant} (v${saveResult.policy_version}).`
     );
+    if (state.selectedPolicyRecord) {
+      await loadPolicyObject(saveResult.policy_id, saveResult.variant);
+    }
     markSyncPlanStale();
   } catch (error) {
     setStatus(`Save failed: ${error.message}`);
@@ -1359,11 +1522,15 @@ async function saveCurrentFile() {
 }
 
 async function reloadCurrentFile() {
-  if (!state.selectedPath) {
-    setStatus("Select a file before reloading.");
+  if (state.selectedPath) {
+    await loadFile(state.selectedPath);
     return;
   }
-  await loadFile(state.selectedPath);
+  if (state.selectedPolicyRecord) {
+    await loadPolicyObject(state.selectedPolicyRecord.policy_id, state.selectedPolicyRecord.variant);
+    return;
+  }
+  setStatus("Select a file or policy object before reloading.");
 }
 
 async function runValidation() {
@@ -1477,6 +1644,24 @@ async function init() {
   }
 
   dom.btnRefreshTree.addEventListener("click", loadTree);
+  if (dom.btnRefreshInventory) {
+    dom.btnRefreshInventory.addEventListener("click", refreshPolicyInventory);
+  }
+  if (dom.inventoryPolicyType) {
+    dom.inventoryPolicyType.addEventListener("change", () => {
+      void refreshPolicyInventory();
+    });
+  }
+  if (dom.inventoryNamespace) {
+    dom.inventoryNamespace.addEventListener("change", () => {
+      void refreshPolicyInventory();
+    });
+  }
+  if (dom.inventoryStatus) {
+    dom.inventoryStatus.addEventListener("change", () => {
+      void refreshPolicyInventory();
+    });
+  }
   if (dom.btnRefreshHash) {
     dom.btnRefreshHash.addEventListener("click", refreshHashStatus);
   }
@@ -1521,6 +1706,7 @@ async function init() {
   dom.btnApplySync.addEventListener("click", applySyncPlan);
 
   await refreshHashStatus();
+  await refreshPolicyInventory();
   await loadTree();
   await runValidation();
   await buildSyncPlan();
