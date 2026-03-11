@@ -23,8 +23,32 @@ def test_selector_from_relative_path_maps_species_block_files() -> None:
     assert selector.policy_id == "species_block:image.blocks.species:goblin"
 
 
-def test_selector_from_relative_path_returns_none_for_non_pilot_paths() -> None:
-    """Non-pilot or non-species paths should stay unmapped in Phase 2."""
+def test_selector_from_relative_path_maps_prompt_text_files() -> None:
+    """Versioned prompt text paths should map to canonical prompt selectors."""
+    selector = policy_authoring.selector_from_relative_path("translation/prompts/ic/default_v1.txt")
+    assert selector is not None
+    assert selector.policy_type == "prompt"
+    assert selector.namespace == "translation.prompts.ic"
+    assert selector.policy_key == "default"
+    assert selector.variant == "v1"
+    assert selector.policy_id == "prompt:translation.prompts.ic:default"
+
+
+def test_selector_from_relative_path_maps_tone_profile_json_files() -> None:
+    """Tone profile JSON paths should map to canonical tone-profile selectors."""
+    selector = policy_authoring.selector_from_relative_path(
+        "image/tone_profiles/ledger_engraving_v1.json"
+    )
+    assert selector is not None
+    assert selector.policy_type == "tone_profile"
+    assert selector.namespace == "image.tone_profiles"
+    assert selector.policy_key == "ledger_engraving"
+    assert selector.variant == "v1"
+    assert selector.policy_id == "tone_profile:image.tone_profiles:ledger_engraving"
+
+
+def test_selector_from_relative_path_returns_none_for_unmapped_paths() -> None:
+    """Non-versioned or unsupported paths should stay unmapped."""
     assert policy_authoring.selector_from_relative_path("image/prompts/portrait.txt") is None
     assert policy_authoring.selector_from_relative_path("image/blocks/species/bad.yaml") is None
 
@@ -88,6 +112,94 @@ def test_save_species_block_from_yaml_runs_validate_then_upsert_then_activate(mo
     assert any("/validate" in call for call in calls)
     assert any("/variants/" in call for call in calls)
     assert any("/policy-activations" in call for call in calls)
+
+
+def test_save_policy_variant_from_raw_content_supports_prompt_text(monkeypatch) -> None:
+    """Generic save helper should serialize prompt text into canonical content payload."""
+    selector = PolicySelector(
+        policy_type="prompt",
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 12}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 5, "content_hash": "hash-prompt"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 5)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content="  Stay in-character and terse.  \n",
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "prompt:translation.prompts.ic:default"
+    assert result.policy_version == 5
+    assert result.content_hash == "hash-prompt"
+    assert result.validation_run_id == 12
+    assert captured_payloads[0]["content"] == {"text": "Stay in-character and terse."}
+    assert captured_payloads[1]["content"] == {"text": "Stay in-character and terse."}
+
+
+def test_save_policy_variant_from_raw_content_rejects_invalid_tone_profile_json() -> None:
+    """Generic save helper should reject non-JSON tone profile payload text."""
+    with pytest.raises(ValueError, match="must be valid JSON object text"):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="tone_profile",
+                namespace="image.tone_profiles",
+                policy_key="ledger_engraving",
+                variant="v1",
+            ),
+            raw_content="{not valid json}",
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
+
+
+def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() -> None:
+    """Generic save helper should reject policy types outside implemented mappings."""
+    with pytest.raises(ValueError, match="supports only policy_type values"):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="registry",
+                namespace="image.registries",
+                policy_key="species_registry",
+                variant="v1",
+            ),
+            raw_content="name: species_registry",
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
 
 
 def test_save_species_block_from_yaml_requires_world_scope_for_activation(monkeypatch) -> None:

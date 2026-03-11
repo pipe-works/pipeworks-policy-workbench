@@ -34,7 +34,7 @@ from .web_models import (
     ValidationResponse,
 )
 
-_EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml"}
+_EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml", ".json"}
 _HASH_VERSION = "policy_tree_hash_v1"
 _DEFAULT_CANONICAL_HASH_URL = "http://127.0.0.1:8000/api/policy/hash-snapshot"
 _CANONICAL_HASH_URL_ENV = "PW_POLICY_HASH_SNAPSHOT_URL"
@@ -525,7 +525,9 @@ def _validate_supported_editor_path(relative_path: str) -> None:
     """Raise ``ValueError`` when web editor is asked to read/write unsupported files."""
 
     if not _is_supported_editor_file(relative_path):
-        raise ValueError("Only .txt, .yaml, and .yml policy files are supported by the web editor")
+        raise ValueError(
+            "Only .txt, .yaml, .yml, and .json policy files are supported by the web editor"
+        )
 
 
 def _filter_snapshot_to_supported_files(snapshot: PolicyTreeSnapshot) -> PolicyTreeSnapshot:

@@ -10,7 +10,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
-from .policy_authoring import PolicySelector, resolve_runtime_config, save_species_block_from_yaml
+from .policy_authoring import (
+    PolicySelector,
+    resolve_runtime_config,
+    save_policy_variant_from_raw_content,
+)
 from .sync_apply import apply_sync_plan
 from .web_models import (
     HashStatusResponse,
@@ -148,9 +152,9 @@ def create_web_app(
         )
         try:
             runtime_config = resolve_runtime_config(session_id_override=payload.session_id)
-            result = save_species_block_from_yaml(
+            result = save_policy_variant_from_raw_content(
                 selector=selector,
-                raw_yaml=payload.raw_content,
+                raw_content=payload.raw_content,
                 schema_version=payload.schema_version,
                 status=payload.status,
                 activate=payload.activate,
