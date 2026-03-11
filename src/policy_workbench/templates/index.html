@@ -53,6 +53,33 @@
   </section>
 
   <section class="panel panel--centre" aria-label="Raw File Editor">
+    <div class="inventory-shell" aria-label="API-first policy inventory">
+      <div class="panel-header-row">
+        <h2 class="panel__heading">Policy Inventory (API-first)</h2>
+        <button id="btn-refresh-inventory" class="btn btn--secondary" type="button">Refresh Inventory</button>
+      </div>
+      <div class="inventory-filters">
+        <label class="inventory-filter">
+          <span class="inventory-filter__label">Type</span>
+          <input id="inventory-policy-type" class="input input--compact" type="text" placeholder="species_block" />
+        </label>
+        <label class="inventory-filter">
+          <span class="inventory-filter__label">Namespace</span>
+          <input id="inventory-namespace" class="input input--compact" type="text" placeholder="image.blocks.species" />
+        </label>
+        <label class="inventory-filter">
+          <span class="inventory-filter__label">Status</span>
+          <input id="inventory-status" class="input input--compact" type="text" placeholder="draft|candidate|active" />
+        </label>
+        <span id="inventory-count" class="meta-line">0 policies</span>
+      </div>
+      <div class="list-shell list-shell--inventory">
+        <ul id="inventory-list" class="report-list"></ul>
+      </div>
+    </div>
+
+    <hr class="divider" />
+
     <div class="panel-header-row">
       <div class="panel-header-main">
         <h2 class="panel__heading">Raw Editor</h2>

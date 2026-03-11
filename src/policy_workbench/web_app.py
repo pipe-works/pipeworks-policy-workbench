@@ -18,9 +18,13 @@ from .policy_authoring import (
 from .sync_apply import apply_sync_plan
 from .web_models import (
     HashStatusResponse,
+    PolicyActivationScopeResponse,
     PolicyFileResponse,
     PolicyFileUpdateRequest,
     PolicyFileUpdateResponse,
+    PolicyInventoryResponse,
+    PolicyObjectDetailResponse,
+    PolicyPublishRunProxyResponse,
     PolicySaveRequest,
     PolicySaveResponse,
     PolicyTreeResponse,
@@ -32,6 +36,10 @@ from .web_models import (
 )
 from .web_services import (
     build_hash_status_payload,
+    build_policy_activation_scope_payload,
+    build_policy_inventory_payload,
+    build_policy_object_detail_payload,
+    build_policy_publish_run_payload,
     build_sync_compare_payload,
     build_sync_payload,
     build_sync_plan_for_apply,
@@ -73,6 +81,77 @@ def create_web_app(
         """Simple readiness endpoint for local runtime checks."""
 
         return {"status": "ok"}
+
+    @app.get("/api/policies", response_model=PolicyInventoryResponse)
+    async def api_policies(
+        policy_type: str | None = Query(default=None),
+        namespace: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+    ) -> PolicyInventoryResponse:
+        """Return API-first policy inventory list from mud-server canonical API."""
+
+        try:
+            return build_policy_inventory_payload(
+                policy_type=policy_type,
+                namespace=namespace,
+                status=status,
+                session_id_override=session_id,
+            )
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/policies/{policy_id}", response_model=PolicyObjectDetailResponse)
+    async def api_policy_detail(
+        policy_id: str,
+        variant: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+    ) -> PolicyObjectDetailResponse:
+        """Return one policy object detail payload from mud-server canonical API."""
+
+        try:
+            return build_policy_object_detail_payload(
+                policy_id=policy_id,
+                variant=variant,
+                session_id_override=session_id,
+            )
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/policy-activations-live", response_model=PolicyActivationScopeResponse)
+    async def api_policy_activations_live(
+        scope: str = Query(min_length=1),
+        effective: bool = Query(default=True),
+        session_id: str | None = Query(default=None),
+    ) -> PolicyActivationScopeResponse:
+        """Return scoped activation mappings from mud-server canonical API."""
+
+        try:
+            return build_policy_activation_scope_payload(
+                scope=scope,
+                effective=effective,
+                session_id_override=session_id,
+            )
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get(
+        "/api/policy-publish-runs/{publish_run_id}",
+        response_model=PolicyPublishRunProxyResponse,
+    )
+    async def api_policy_publish_run(
+        publish_run_id: int,
+        session_id: str | None = Query(default=None),
+    ) -> PolicyPublishRunProxyResponse:
+        """Return one publish run payload from mud-server canonical publish API."""
+
+        try:
+            return build_policy_publish_run_payload(
+                publish_run_id=publish_run_id,
+                session_id_override=session_id,
+            )
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/tree", response_model=PolicyTreeResponse)
     async def api_tree(

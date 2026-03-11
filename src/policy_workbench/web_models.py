@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -81,6 +83,56 @@ class PolicySaveResponse(BaseModel):
     validation_run_id: int
     activated: bool
     activation_audit_event_id: int | None
+
+
+class PolicyObjectSummaryResponse(BaseModel):
+    """Summary row for API-first policy inventory listing."""
+
+    policy_id: str
+    policy_type: str
+    namespace: str
+    policy_key: str
+    variant: str
+    schema_version: str
+    policy_version: int
+    status: str
+    content_hash: str
+    updated_at: str
+    updated_by: str
+
+
+class PolicyObjectDetailResponse(PolicyObjectSummaryResponse):
+    """Detailed policy object payload including canonical content."""
+
+    content: dict[str, Any]
+
+
+class PolicyInventoryResponse(BaseModel):
+    """API-first inventory payload for policy object browsing."""
+
+    filters: dict[str, str | None]
+    item_count: int
+    items: list[PolicyObjectSummaryResponse]
+
+
+class PolicyActivationScopeResponse(BaseModel):
+    """Activation mapping payload returned from mud-server proxy route."""
+
+    world_id: str
+    client_profile: str | None
+    items: list[dict[str, Any]]
+
+
+class PolicyPublishRunProxyResponse(BaseModel):
+    """Publish-run payload returned from mud-server proxy route."""
+
+    publish_run_id: int
+    world_id: str
+    client_profile: str | None
+    actor: str
+    created_at: str
+    manifest: dict[str, Any]
+    artifact: dict[str, Any]
 
 
 class ValidationIssueResponse(BaseModel):

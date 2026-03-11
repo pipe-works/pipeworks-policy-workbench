@@ -14,7 +14,14 @@ from policy_workbench import web_app as web_app_module
 from policy_workbench import web_services
 from policy_workbench.policy_authoring import PolicySaveResult
 from policy_workbench.web_app import create_web_app
-from policy_workbench.web_models import HashCanonicalResponse
+from policy_workbench.web_models import (
+    HashCanonicalResponse,
+    PolicyActivationScopeResponse,
+    PolicyInventoryResponse,
+    PolicyObjectDetailResponse,
+    PolicyObjectSummaryResponse,
+    PolicyPublishRunProxyResponse,
+)
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -193,6 +200,187 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     )
     assert unsupported_write_response.status_code == 410
     assert "Direct file writes are disabled" in unsupported_write_response.json()["detail"]
+
+
+def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """API-first inventory/detail endpoints should proxy mud-server payload models."""
+    client, _, _ = _build_client(tmp_path)
+
+    captured_inventory_kwargs: dict[str, object] = {}
+    captured_detail_kwargs: dict[str, object] = {}
+
+    def _fake_inventory_builder(**kwargs):
+        captured_inventory_kwargs.update(kwargs)
+        return PolicyInventoryResponse(
+            filters={"policy_type": "species_block", "namespace": None, "status": "draft"},
+            item_count=1,
+            items=[
+                PolicyObjectSummaryResponse(
+                    policy_id="species_block:image.blocks.species:goblin",
+                    policy_type="species_block",
+                    namespace="image.blocks.species",
+                    policy_key="goblin",
+                    variant="v1",
+                    schema_version="1.0",
+                    policy_version=1,
+                    status="draft",
+                    content_hash="hash-goblin",
+                    updated_at="2026-03-11T20:00:00Z",
+                    updated_by="tester",
+                )
+            ],
+        )
+
+    def _fake_detail_builder(**kwargs):
+        captured_detail_kwargs.update(kwargs)
+        return PolicyObjectDetailResponse(
+            policy_id="species_block:image.blocks.species:goblin",
+            policy_type="species_block",
+            namespace="image.blocks.species",
+            policy_key="goblin",
+            variant="v1",
+            schema_version="1.0",
+            policy_version=1,
+            status="draft",
+            content={"text": "Goblin text"},
+            content_hash="hash-goblin",
+            updated_at="2026-03-11T20:00:00Z",
+            updated_by="tester",
+        )
+
+    monkeypatch.setattr(web_app_module, "build_policy_inventory_payload", _fake_inventory_builder)
+    monkeypatch.setattr(web_app_module, "build_policy_object_detail_payload", _fake_detail_builder)
+
+    inventory_response = client.get(
+        "/api/policies",
+        params={"policy_type": "species_block", "status": "draft", "session_id": "s1"},
+    )
+    assert inventory_response.status_code == 200
+    inventory_payload = inventory_response.json()
+    assert inventory_payload["item_count"] == 1
+    assert inventory_payload["items"][0]["policy_id"] == "species_block:image.blocks.species:goblin"
+    assert captured_inventory_kwargs == {
+        "policy_type": "species_block",
+        "namespace": None,
+        "status": "draft",
+        "session_id_override": "s1",
+    }
+
+    detail_response = client.get(
+        "/api/policies/species_block:image.blocks.species:goblin",
+        params={"variant": "v1", "session_id": "s1"},
+    )
+    assert detail_response.status_code == 200
+    detail_payload = detail_response.json()
+    assert detail_payload["content"]["text"] == "Goblin text"
+    assert captured_detail_kwargs == {
+        "policy_id": "species_block:image.blocks.species:goblin",
+        "variant": "v1",
+        "session_id_override": "s1",
+    }
+
+
+def test_api_first_activation_and_publish_proxy_endpoints(tmp_path: Path, monkeypatch) -> None:
+    """Activation/publish proxy endpoints should return normalized service payloads."""
+    client, _, _ = _build_client(tmp_path)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_activation_scope_payload",
+        lambda **_kwargs: PolicyActivationScopeResponse(
+            world_id="pipeworks_web",
+            client_profile="mobile",
+            items=[
+                {
+                    "world_id": "pipeworks_web",
+                    "client_profile": "mobile",
+                    "policy_id": "species_block:image.blocks.species:goblin",
+                    "variant": "v1",
+                }
+            ],
+        ),
+    )
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_publish_run_payload",
+        lambda **_kwargs: PolicyPublishRunProxyResponse(
+            publish_run_id=7,
+            world_id="pipeworks_web",
+            client_profile="mobile",
+            actor="tester",
+            created_at="2026-03-11T20:00:00Z",
+            manifest={"manifest_hash": "abc"},
+            artifact={"artifact_hash": "def", "artifact_path": "/tmp/export.json"},
+        ),
+    )
+
+    activation_response = client.get(
+        "/api/policy-activations-live",
+        params={"scope": "pipeworks_web:mobile", "effective": "false", "session_id": "s1"},
+    )
+    assert activation_response.status_code == 200
+    activation_payload = activation_response.json()
+    assert activation_payload["world_id"] == "pipeworks_web"
+    assert activation_payload["items"][0]["variant"] == "v1"
+
+    publish_response = client.get(
+        "/api/policy-publish-runs/7",
+        params={"session_id": "s1"},
+    )
+    assert publish_response.status_code == 200
+    publish_payload = publish_response.json()
+    assert publish_payload["publish_run_id"] == 7
+    assert publish_payload["artifact"]["artifact_hash"] == "def"
+
+
+def test_api_first_proxy_endpoints_map_service_errors_to_http_400(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """API-first proxy endpoints should map service ValueError failures to HTTP 400."""
+    client, _, _ = _build_client(tmp_path)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_inventory_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("inventory failure")),
+    )
+    inventory_response = client.get("/api/policies")
+    assert inventory_response.status_code == 400
+    assert "inventory failure" in inventory_response.json()["detail"]
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_object_detail_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("detail failure")),
+    )
+    detail_response = client.get("/api/policies/species_block:image.blocks.species:goblin")
+    assert detail_response.status_code == 400
+    assert "detail failure" in detail_response.json()["detail"]
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_activation_scope_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("activation failure")),
+    )
+    activation_response = client.get(
+        "/api/policy-activations-live",
+        params={"scope": "pipeworks_web"},
+    )
+    assert activation_response.status_code == 400
+    assert "activation failure" in activation_response.json()["detail"]
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_publish_run_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("publish failure")),
+    )
+    publish_response = client.get("/api/policy-publish-runs/1")
+    assert publish_response.status_code == 400
+    assert "publish failure" in publish_response.json()["detail"]
 
 
 def test_policy_save_endpoint_runs_phase2_api_only_flow(
