@@ -47,10 +47,47 @@ def test_selector_from_relative_path_maps_tone_profile_json_files() -> None:
     assert selector.policy_id == "tone_profile:image.tone_profiles:ledger_engraving"
 
 
+def test_selector_from_relative_path_maps_descriptor_layer_structured_files() -> None:
+    """Descriptor-layer YAML/JSON paths should map to canonical layer-2 selectors."""
+    selector = policy_authoring.selector_from_relative_path(
+        "image/descriptor_layers/id_card_v2.yaml"
+    )
+    assert selector is not None
+    assert selector.policy_type == "descriptor_layer"
+    assert selector.namespace == "image.descriptor_layers"
+    assert selector.policy_key == "id_card"
+    assert selector.variant == "v2"
+    assert selector.policy_id == "descriptor_layer:image.descriptor_layers:id_card"
+
+
+def test_selector_from_relative_path_maps_registry_yaml_files() -> None:
+    """Registry YAML paths should map to canonical registry selectors."""
+    versioned_selector = policy_authoring.selector_from_relative_path(
+        "image/registries/species_registry_v3.yaml"
+    )
+    assert versioned_selector is not None
+    assert versioned_selector.policy_type == "registry"
+    assert versioned_selector.namespace == "image.registries"
+    assert versioned_selector.policy_key == "species_registry"
+    assert versioned_selector.variant == "v3"
+
+    unversioned_selector = policy_authoring.selector_from_relative_path(
+        "image/registries/species_registry.yaml"
+    )
+    assert unversioned_selector is not None
+    assert unversioned_selector.policy_type == "registry"
+    assert unversioned_selector.policy_key == "species_registry"
+    assert unversioned_selector.variant == "v1"
+
+
 def test_selector_from_relative_path_returns_none_for_unmapped_paths() -> None:
     """Non-versioned or unsupported paths should stay unmapped."""
     assert policy_authoring.selector_from_relative_path("image/prompts/portrait.txt") is None
     assert policy_authoring.selector_from_relative_path("image/blocks/species/bad.yaml") is None
+    assert (
+        policy_authoring.selector_from_relative_path("image/descriptor_layers/id_card_v1.txt")
+        is None
+    )
 
 
 def test_resolve_runtime_config_uses_env_and_requires_session(monkeypatch) -> None:
@@ -184,12 +221,136 @@ def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() 
     with pytest.raises(ValueError, match="supports only policy_type values"):
         policy_authoring.save_policy_variant_from_raw_content(
             selector=PolicySelector(
-                policy_type="registry",
-                namespace="image.registries",
-                policy_key="species_registry",
+                policy_type="image_block",
+                namespace="image.blocks",
+                policy_key="portrait",
                 variant="v1",
             ),
-            raw_content="name: species_registry",
+            raw_content="text: portrait",
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
+
+
+def test_save_policy_variant_from_raw_content_supports_descriptor_layer_references(
+    monkeypatch,
+) -> None:
+    """Generic save helper should pass normalized references for descriptor-layer payloads."""
+    selector = PolicySelector(
+        policy_type="descriptor_layer",
+        namespace="image.descriptor_layers",
+        policy_key="id_card",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 77}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 2, "content_hash": "hash-layer2"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 2)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content=(
+            "references:\n"
+            "  - policy_id: species_block:image.blocks.species:goblin\n"
+            "    variant: v1\n"
+        ),
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "descriptor_layer:image.descriptor_layers:id_card"
+    assert result.policy_version == 2
+    assert captured_payloads[0]["content"] == {
+        "references": [
+            {
+                "policy_id": "species_block:image.blocks.species:goblin",
+                "variant": "v1",
+            }
+        ]
+    }
+
+
+def test_save_policy_variant_from_raw_content_supports_registry_legacy_inference(
+    monkeypatch,
+) -> None:
+    """Registry helper should infer references from legacy species block_path fields."""
+    selector = PolicySelector(
+        policy_type="registry",
+        namespace="image.registries",
+        policy_key="species_registry",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 32}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 1, "content_hash": "hash-registry"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 1)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content=(
+            "entries:\n"
+            "  - block_path: policies/image/blocks/species/goblin_v1.yaml\n"
+            "  - block_path: policies/image/blocks/species/human_v2.yaml\n"
+        ),
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "registry:image.registries:species_registry"
+    assert captured_payloads[0]["content"] == {
+        "references": [
+            {"policy_id": "species_block:image.blocks.species:goblin", "variant": "v1"},
+            {"policy_id": "species_block:image.blocks.species:human", "variant": "v2"},
+        ]
+    }
+
+
+def test_save_policy_variant_from_raw_content_rejects_registry_without_references() -> None:
+    """Registry payloads without explicit/inferable references should be rejected."""
+    with pytest.raises(ValueError, match="registry content must include references"):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="registry",
+                namespace="image.registries",
+                policy_key="clothing_registry",
+                variant="v1",
+            ),
+            raw_content="registry:\n  id: clothing_registry\n",
             schema_version="1.0",
             status="draft",
             activate=False,
@@ -433,6 +594,59 @@ def test_save_species_block_from_yaml_rejects_missing_upsert_or_activation_paylo
             actor=None,
             runtime_config=config,
         )
+
+
+def test_layer2_parsing_helpers_cover_error_branches() -> None:
+    """Layer 2 parsing helpers should report stable errors for malformed payloads."""
+    with pytest.raises(ValueError, match="descriptor_layer content must include"):
+        policy_authoring._extract_layer2_references(  # noqa: SLF001
+            payload={},
+            policy_type="descriptor_layer",
+        )
+
+    with pytest.raises(ValueError, match="content.references must be a non-empty list"):
+        policy_authoring._normalize_reference_entries(  # noqa: SLF001
+            references=[],
+            policy_type="registry",
+        )
+
+    with pytest.raises(ValueError, match="must be an object with 'policy_id' and 'variant'"):
+        policy_authoring._normalize_reference_entries(  # noqa: SLF001
+            references=[42],
+            policy_type="registry",
+        )
+
+    with pytest.raises(ValueError, match="policy_id is required"):
+        policy_authoring._normalize_reference_entries(  # noqa: SLF001
+            references=[{"policy_id": "", "variant": "v1"}],
+            policy_type="registry",
+        )
+
+
+def test_policy_reference_from_legacy_path_maps_supported_layer1_paths() -> None:
+    """Legacy path mapper should resolve known Layer 1 file families."""
+    assert policy_authoring._policy_reference_from_legacy_path(  # noqa: SLF001
+        "policies/image/blocks/species/goblin_v1.yaml"
+    ) == {
+        "policy_id": "species_block:image.blocks.species:goblin",
+        "variant": "v1",
+    }
+    assert policy_authoring._policy_reference_from_legacy_path(  # noqa: SLF001
+        "translation/prompts/ic/default_v2.txt"
+    ) == {
+        "policy_id": "prompt:translation.prompts.ic:default",
+        "variant": "v2",
+    }
+    assert policy_authoring._policy_reference_from_legacy_path(  # noqa: SLF001
+        "image/tone_profiles/ledger_engraving_v1.json"
+    ) == {
+        "policy_id": "tone_profile:image.tone_profiles:ledger_engraving",
+        "variant": "v1",
+    }
+    assert (
+        policy_authoring._policy_reference_from_legacy_path("image/blocks/clothing/workwear_v1.txt")
+        is None
+    )  # noqa: SLF001
 
 
 def test_resolve_runtime_config_rejects_empty_base_url(monkeypatch) -> None:

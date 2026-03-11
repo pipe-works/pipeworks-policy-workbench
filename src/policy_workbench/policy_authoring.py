@@ -17,6 +17,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 
+import yaml  # type: ignore[import-untyped]
+
 from .extractors import extract_yaml_text_field
 
 _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
@@ -33,6 +35,27 @@ _PROMPT_TEXT_PATH_PATTERN = re.compile(
 )
 _TONE_PROFILE_PATH_PATTERN = re.compile(
     r"^image/tone_profiles/(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.json$"
+)
+_DESCRIPTOR_LAYER_PATH_PATTERN = re.compile(
+    r"^image/descriptor_layers/(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)"
+    r"\.(?:ya?ml|json)$"
+)
+_REGISTRY_VERSIONED_PATH_PATTERN = re.compile(
+    r"^image/registries/(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml$"
+)
+_REGISTRY_UNVERSIONED_PATH_PATTERN = re.compile(r"^image/registries/(?P<policy_key>.+)\.ya?ml$")
+
+_LEGACY_SPECIES_BLOCK_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?image/blocks/species/(?P<policy_key>.+)_"
+    r"(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml$"
+)
+_LEGACY_PROMPT_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?(?P<namespace_path>(?:image|translation)/prompts(?:/[A-Za-z0-9._-]+)*)/"
+    r"(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.txt$"
+)
+_LEGACY_TONE_PROFILE_PATH_PATTERN = re.compile(
+    r"^(?:policies/)?image/tone_profiles/(?P<policy_key>.+)_"
+    r"(?P<variant>v[0-9][A-Za-z0-9_-]*)\.json$"
 )
 
 
@@ -77,6 +100,8 @@ def selector_from_relative_path(relative_path: str) -> PolicySelector | None:
 
     Authorable mappings currently include:
     - ``species_block`` YAML blocks under ``image/blocks/species``
+    - ``descriptor_layer`` structured files under ``image/descriptor_layers``
+    - ``registry`` YAML files under ``image/registries``
     - versioned ``prompt`` text files under ``*/prompts/**``
     - ``tone_profile`` JSON files under ``image/tone_profiles``
     """
@@ -107,6 +132,33 @@ def selector_from_relative_path(relative_path: str) -> PolicySelector | None:
             namespace="image.tone_profiles",
             policy_key=tone_match.group("policy_key"),
             variant=tone_match.group("variant"),
+        )
+
+    descriptor_match = _DESCRIPTOR_LAYER_PATH_PATTERN.fullmatch(normalized)
+    if descriptor_match is not None:
+        return PolicySelector(
+            policy_type="descriptor_layer",
+            namespace="image.descriptor_layers",
+            policy_key=descriptor_match.group("policy_key"),
+            variant=descriptor_match.group("variant"),
+        )
+
+    registry_versioned_match = _REGISTRY_VERSIONED_PATH_PATTERN.fullmatch(normalized)
+    if registry_versioned_match is not None:
+        return PolicySelector(
+            policy_type="registry",
+            namespace="image.registries",
+            policy_key=registry_versioned_match.group("policy_key"),
+            variant=registry_versioned_match.group("variant"),
+        )
+
+    registry_unversioned_match = _REGISTRY_UNVERSIONED_PATH_PATTERN.fullmatch(normalized)
+    if registry_unversioned_match is not None:
+        return PolicySelector(
+            policy_type="registry",
+            namespace="image.registries",
+            policy_key=registry_unversioned_match.group("policy_key"),
+            variant="v1",
         )
 
     return None
@@ -326,10 +378,166 @@ def _build_policy_content_from_raw(
             raise ValueError("tone_profile raw_content must be a JSON object.")
         return cast(dict[str, object], parsed)
 
+    if selector.policy_type in {"descriptor_layer", "registry"}:
+        payload = _parse_structured_object_from_raw(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
+        references = _extract_layer2_references(
+            payload=payload,
+            policy_type=selector.policy_type,
+        )
+        return {"references": references}
+
     raise ValueError(
         "Policy save currently supports only policy_type values: "
-        "'species_block', 'prompt', 'tone_profile'."
+        "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
     )
+
+
+def _parse_structured_object_from_raw(
+    *,
+    raw_content: str,
+    policy_type: str,
+) -> dict[str, object]:
+    """Parse structured YAML/JSON raw content into one dictionary payload."""
+    try:
+        parsed = json.loads(raw_content)
+    except json.JSONDecodeError:
+        try:
+            parsed = yaml.safe_load(raw_content)
+        except yaml.YAMLError as exc:  # pragma: no cover - exercised via ValueError branch
+            raise ValueError(
+                f"{policy_type} raw_content must be valid YAML/JSON object text."
+            ) from exc
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{policy_type} raw_content must be a YAML/JSON object.")
+    return cast(dict[str, object], parsed)
+
+
+def _extract_layer2_references(
+    *,
+    payload: dict[str, object],
+    policy_type: str,
+) -> list[dict[str, str]]:
+    """Extract canonical Layer 2 ``references`` payload for descriptor/registry objects."""
+    raw_references = payload.get("references")
+    if raw_references is not None:
+        return _normalize_reference_entries(references=raw_references, policy_type=policy_type)
+
+    if policy_type == "registry":
+        inferred_references = _infer_registry_references_from_legacy_payload(payload=payload)
+        if inferred_references:
+            return inferred_references
+        raise ValueError(
+            "registry content must include references, or legacy entries/slots with "
+            "block_path values that resolve to Layer 1 policy objects."
+        )
+
+    raise ValueError("descriptor_layer content must include a non-empty references list.")
+
+
+def _normalize_reference_entries(
+    *,
+    references: object,
+    policy_type: str,
+) -> list[dict[str, str]]:
+    """Validate/normalize explicit Layer 2 references into canonical list form."""
+    if not isinstance(references, list) or len(references) == 0:
+        raise ValueError(f"{policy_type} content.references must be a non-empty list.")
+
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(references):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"{policy_type} content.references[{index}] must be an object with "
+                "'policy_id' and 'variant'."
+            )
+        policy_id = str(item.get("policy_id", "")).strip()
+        variant = str(item.get("variant", "")).strip()
+        if not policy_id:
+            raise ValueError(f"{policy_type} content.references[{index}].policy_id is required.")
+        if not variant:
+            raise ValueError(f"{policy_type} content.references[{index}].variant is required.")
+        normalized.append({"policy_id": policy_id, "variant": variant})
+    return normalized
+
+
+def _infer_registry_references_from_legacy_payload(
+    *,
+    payload: dict[str, object],
+) -> list[dict[str, str]]:
+    """Derive Layer 2 references from legacy registry payloads.
+
+    Legacy registry files typically encode source links using ``block_path`` or
+    ``fragment_path`` fields. For migration, this helper extracts only paths
+    that can be deterministically mapped to known Layer 1 policy object IDs.
+    """
+    candidates: list[str] = []
+    entries = payload.get("entries")
+    if isinstance(entries, list):
+        candidates.extend(_collect_path_fields_from_entries(entries))
+
+    slots = payload.get("slots")
+    if isinstance(slots, dict):
+        for slot_rows in slots.values():
+            if isinstance(slot_rows, list):
+                candidates.extend(_collect_path_fields_from_entries(slot_rows))
+
+    resolved: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        reference = _policy_reference_from_legacy_path(candidate)
+        if reference is None:
+            continue
+        identity = (reference["policy_id"], reference["variant"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        resolved.append(reference)
+    return resolved
+
+
+def _collect_path_fields_from_entries(entries: list[object]) -> list[str]:
+    """Return recognized legacy path fields from a list of registry rows."""
+    values: list[str] = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        for key in ("block_path", "fragment_path", "prompt_path", "tone_profile_path"):
+            raw_value = item.get(key)
+            if isinstance(raw_value, str) and raw_value.strip():
+                values.append(raw_value.strip())
+    return values
+
+
+def _policy_reference_from_legacy_path(path_value: str) -> dict[str, str] | None:
+    """Map one legacy file path into canonical Layer 1 ``policy_id`` + variant."""
+    normalized = path_value.replace("\\", "/").strip().lstrip("./")
+
+    species_match = _LEGACY_SPECIES_BLOCK_PATH_PATTERN.fullmatch(normalized)
+    if species_match is not None:
+        return {
+            "policy_id": f"species_block:image.blocks.species:{species_match.group('policy_key')}",
+            "variant": species_match.group("variant"),
+        }
+
+    prompt_match = _LEGACY_PROMPT_PATH_PATTERN.fullmatch(normalized)
+    if prompt_match is not None:
+        namespace = prompt_match.group("namespace_path").replace("/", ".")
+        return {
+            "policy_id": f"prompt:{namespace}:{prompt_match.group('policy_key')}",
+            "variant": prompt_match.group("variant"),
+        }
+
+    tone_match = _LEGACY_TONE_PROFILE_PATH_PATTERN.fullmatch(normalized)
+    if tone_match is not None:
+        return {
+            "policy_id": f"tone_profile:image.tone_profiles:{tone_match.group('policy_key')}",
+            "variant": tone_match.group("variant"),
+        }
+
+    return None
 
 
 def _request_json(
