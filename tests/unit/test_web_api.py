@@ -89,6 +89,10 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     client, source_root, _ = _build_client(tmp_path)
     _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
     _write_text(source_root / "image" / "notes.md", "ignored markdown file")
+    _write_text(
+        source_root / "image" / "tone_profiles" / "ledger_engraving_v1.json",
+        '{"prompt_block":"Etched metallic texture."}',
+    )
 
     tree_response = client.get("/api/tree")
     assert tree_response.status_code == 200
@@ -116,8 +120,19 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     assert prompt_artifact["is_authorable"] is False
     assert prompt_artifact["policy_type"] is None
 
+    tone_profile_artifact = next(
+        item
+        for item in tree_payload["artifacts"]
+        if item["relative_path"] == "image/tone_profiles/ledger_engraving_v1.json"
+    )
+    assert tone_profile_artifact["is_authorable"] is True
+    assert tone_profile_artifact["policy_type"] == "tone_profile"
+    assert tone_profile_artifact["namespace"] == "image.tone_profiles"
+    assert tone_profile_artifact["policy_key"] == "ledger_engraving"
+    assert tone_profile_artifact["variant"] == "v1"
+
     assert all(
-        Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}
+        Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml", ".json"}
         for item in tree_payload["artifacts"]
     )
     assert not any(item["relative_path"] == "image/.DS_Store" for item in tree_payload["artifacts"])
@@ -140,7 +155,7 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
 
     unsupported_read_response = client.get("/api/file", params={"relative_path": "image/.DS_Store"})
     assert unsupported_read_response.status_code == 400
-    assert "Only .txt, .yaml, and .yml" in unsupported_read_response.json()["detail"]
+    assert "Only .txt, .yaml, .yml, and .json" in unsupported_read_response.json()["detail"]
 
     unsupported_write_response = client.put(
         "/api/file",
@@ -164,7 +179,7 @@ def test_policy_save_endpoint_runs_phase2_api_only_flow(
     )
     monkeypatch.setattr(
         web_app_module,
-        "save_species_block_from_yaml",
+        "save_policy_variant_from_raw_content",
         lambda **kwargs: PolicySaveResult(
             policy_id="species_block:image.blocks.species:goblin",
             variant="v1",
@@ -529,7 +544,7 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
         "target_only",
     }
     assert all(
-        Path(action["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}
+        Path(action["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml", ".json"}
         for action in plan_payload["actions"]
     )
 
@@ -578,11 +593,11 @@ def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Pat
 
 
 def test_sync_compare_endpoint_rejects_unsupported_file_extensions(tmp_path: Path) -> None:
-    """Sync compare should return HTTP 400 when the path is not .txt/.yaml/.yml."""
+    """Sync compare should return HTTP 400 when the path is not editor-supported."""
 
     client, _, _ = _build_client(tmp_path)
 
     response = client.get("/api/sync-compare", params={"relative_path": "image/notes.md"})
 
     assert response.status_code == 400
-    assert "Only .txt, .yaml, and .yml" in response.json()["detail"]
+    assert "Only .txt, .yaml, .yml, and .json" in response.json()["detail"]

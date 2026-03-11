@@ -23,9 +23,16 @@ _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
 _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
 _MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
 
-# Phase 2 pilot: map only species block YAML files into canonical policy IDs.
+# Selector mappings from relative file paths to canonical policy object identity.
 _SPECIES_BLOCK_PATH_PATTERN = re.compile(
     r"^image/blocks/species/(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.ya?ml$"
+)
+_PROMPT_TEXT_PATH_PATTERN = re.compile(
+    r"^(?P<namespace_path>(?:image|translation)/prompts(?:/[A-Za-z0-9._-]+)*)/"
+    r"(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.txt$"
+)
+_TONE_PROFILE_PATH_PATTERN = re.compile(
+    r"^image/tone_profiles/(?P<policy_key>.+)_(?P<variant>v[0-9][A-Za-z0-9_-]*)\.json$"
 )
 
 
@@ -68,25 +75,47 @@ class PolicySaveResult:
 def selector_from_relative_path(relative_path: str) -> PolicySelector | None:
     """Resolve canonical policy selector for a workbench relative path.
 
-    Phase 2 intentionally limits authorable objects to ``species_block`` pilot
-    files. Paths outside that mapping are read-only in runtime authoring flows.
+    Authorable mappings currently include:
+    - ``species_block`` YAML blocks under ``image/blocks/species``
+    - versioned ``prompt`` text files under ``*/prompts/**``
+    - ``tone_profile`` JSON files under ``image/tone_profiles``
     """
     normalized = relative_path.strip().replace("\\", "/")
-    match = _SPECIES_BLOCK_PATH_PATTERN.fullmatch(normalized)
-    if match is None:
-        return None
-    return PolicySelector(
-        policy_type="species_block",
-        namespace="image.blocks.species",
-        policy_key=match.group("policy_key"),
-        variant=match.group("variant"),
-    )
+    species_match = _SPECIES_BLOCK_PATH_PATTERN.fullmatch(normalized)
+    if species_match is not None:
+        return PolicySelector(
+            policy_type="species_block",
+            namespace="image.blocks.species",
+            policy_key=species_match.group("policy_key"),
+            variant=species_match.group("variant"),
+        )
+
+    prompt_match = _PROMPT_TEXT_PATH_PATTERN.fullmatch(normalized)
+    if prompt_match is not None:
+        namespace = prompt_match.group("namespace_path").replace("/", ".")
+        return PolicySelector(
+            policy_type="prompt",
+            namespace=namespace,
+            policy_key=prompt_match.group("policy_key"),
+            variant=prompt_match.group("variant"),
+        )
+
+    tone_match = _TONE_PROFILE_PATH_PATTERN.fullmatch(normalized)
+    if tone_match is not None:
+        return PolicySelector(
+            policy_type="tone_profile",
+            namespace="image.tone_profiles",
+            policy_key=tone_match.group("policy_key"),
+            variant=tone_match.group("variant"),
+        )
+
+    return None
 
 
-def save_species_block_from_yaml(
+def save_policy_variant_from_raw_content(
     *,
     selector: PolicySelector,
-    raw_yaml: str,
+    raw_content: str,
     schema_version: str,
     status: str,
     activate: bool,
@@ -95,7 +124,7 @@ def save_species_block_from_yaml(
     actor: str | None,
     runtime_config: MudPolicyRuntimeConfig,
 ) -> PolicySaveResult:
-    """Save one species block through mud-server policy APIs.
+    """Save one policy variant through mud-server canonical policy APIs.
 
     Save order is fixed:
     1. Determine next ``policy_version`` from current variant state.
@@ -103,11 +132,7 @@ def save_species_block_from_yaml(
     3. Upsert variant only when validation succeeds.
     4. Optionally update activation pointer for provided scope.
     """
-    if selector.policy_type != "species_block":
-        raise ValueError("Phase 2 save currently supports only policy_type='species_block'.")
-
-    text_content = extract_yaml_text_field(raw_yaml)
-    content = {"text": text_content}
+    content = _build_policy_content_from_raw(selector=selector, raw_content=raw_content)
     policy_id = selector.policy_id
     next_policy_version = _resolve_next_policy_version(
         runtime_config=runtime_config,
@@ -199,6 +224,39 @@ def save_species_block_from_yaml(
     )
 
 
+def save_species_block_from_yaml(
+    *,
+    selector: PolicySelector,
+    raw_yaml: str,
+    schema_version: str,
+    status: str,
+    activate: bool,
+    world_id: str | None,
+    client_profile: str | None,
+    actor: str | None,
+    runtime_config: MudPolicyRuntimeConfig,
+) -> PolicySaveResult:
+    """Backward-compatible species helper used by existing call sites/tests.
+
+    ``save_policy_variant_from_raw_content`` is the generalized Phase 5 entry
+    point. This wrapper preserves the prior explicit guard for callers that
+    still use the legacy species-specific function name.
+    """
+    if selector.policy_type != "species_block":
+        raise ValueError("Phase 2 save currently supports only policy_type='species_block'.")
+    return save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content=raw_yaml,
+        schema_version=schema_version,
+        status=status,
+        activate=activate,
+        world_id=world_id,
+        client_profile=client_profile,
+        actor=actor,
+        runtime_config=runtime_config,
+    )
+
+
 def resolve_runtime_config(*, session_id_override: str | None = None) -> MudPolicyRuntimeConfig:
     """Resolve mud-server API runtime config from env and optional overrides."""
     base_url = os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL).strip().rstrip("/")
@@ -240,6 +298,38 @@ def _resolve_next_policy_version(
         return 1
     raw_policy_version = response.get("policy_version", 0)
     return int(cast(int | str, raw_policy_version)) + 1
+
+
+def _build_policy_content_from_raw(
+    *,
+    selector: PolicySelector,
+    raw_content: str,
+) -> dict[str, object]:
+    """Build contract ``content`` payload for one selector type.
+
+    The workbench remains an API client, so this helper only transforms file
+    content into canonical request payload shape. Policy-type validity is
+    ultimately enforced by mud-server validation endpoints.
+    """
+    if selector.policy_type == "species_block":
+        return {"text": extract_yaml_text_field(raw_content)}
+
+    if selector.policy_type == "prompt":
+        return {"text": raw_content.strip()}
+
+    if selector.policy_type == "tone_profile":
+        try:
+            parsed = json.loads(raw_content)
+        except json.JSONDecodeError as exc:
+            raise ValueError("tone_profile raw_content must be valid JSON object text.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("tone_profile raw_content must be a JSON object.")
+        return cast(dict[str, object], parsed)
+
+    raise ValueError(
+        "Policy save currently supports only policy_type values: "
+        "'species_block', 'prompt', 'tone_profile'."
+    )
 
 
 def _request_json(
