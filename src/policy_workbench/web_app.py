@@ -10,12 +10,15 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import __version__
+from .policy_authoring import PolicySelector, resolve_runtime_config, save_species_block_from_yaml
 from .sync_apply import apply_sync_plan
 from .web_models import (
     HashStatusResponse,
     PolicyFileResponse,
     PolicyFileUpdateRequest,
     PolicyFileUpdateResponse,
+    PolicySaveRequest,
+    PolicySaveResponse,
     PolicyTreeResponse,
     SyncApplyRequest,
     SyncApplyResponse,
@@ -32,7 +35,6 @@ from .web_services import (
     build_validation_payload,
     read_policy_file,
     resolve_source_root_for_web,
-    write_policy_file,
 )
 
 _HERE = Path(__file__).resolve().parent
@@ -114,20 +116,59 @@ def create_web_app(
         root: str | None = Query(default=None),
         map_path: str | None = Query(default=None),
     ) -> PolicyFileUpdateResponse:
-        """Save one source policy file by relative path."""
+        """Legacy endpoint intentionally disabled in Phase 2.
 
+        Runtime authoring now flows through ``/api/policy-save`` so all writes
+        go through mud-server validate/save/activate contracts.
+        """
+        _ = payload
+        _ = root
+        _ = map_path
+        raise HTTPException(
+            status_code=410,
+            detail="Direct file writes are disabled. Use /api/policy-save.",
+        )
+
+    @app.post("/api/policy-save", response_model=PolicySaveResponse)
+    async def api_policy_save(payload: PolicySaveRequest) -> PolicySaveResponse:
+        """Save one authorable policy object through mud-server APIs.
+
+        Flow:
+        1. Resolve runtime mud-server API config/session.
+        2. Validate candidate payload.
+        3. Upsert variant.
+        4. Optionally activate for a provided scope.
+        """
+
+        selector = PolicySelector(
+            policy_type=payload.policy_type,
+            namespace=payload.namespace,
+            policy_key=payload.policy_key,
+            variant=payload.variant,
+        )
         try:
-            source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
+            runtime_config = resolve_runtime_config(session_id_override=payload.session_id)
+            result = save_species_block_from_yaml(
+                selector=selector,
+                raw_yaml=payload.raw_content,
+                schema_version=payload.schema_version,
+                status=payload.status,
+                activate=payload.activate,
+                world_id=payload.world_id,
+                client_profile=payload.client_profile,
+                actor=payload.actor,
+                runtime_config=runtime_config,
             )
-            bytes_written = write_policy_file(source_root, payload.relative_path, payload.content)
-            return PolicyFileUpdateResponse(
-                source_root=str(source_root),
-                relative_path=payload.relative_path,
-                bytes_written=bytes_written,
+            return PolicySaveResponse(
+                policy_id=result.policy_id,
+                variant=result.variant,
+                policy_version=result.policy_version,
+                content_hash=result.content_hash,
+                validation_run_id=result.validation_run_id,
+                activated=payload.activate,
+                activation_audit_event_id=result.activation_audit_event_id,
             )
-        except (IsADirectoryError, NotADirectoryError, ValueError, OSError) as exc:
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/validate", response_model=ValidationResponse)

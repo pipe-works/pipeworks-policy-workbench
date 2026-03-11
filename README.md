@@ -56,6 +56,14 @@ CLI behavior highlights:
 - supports `--port` as a preferred in-range port and falls back within range if occupied
 - prefixes server log lines with `pol-work-bench` for easier pane identification
 
+Phase 2 web authoring behavior:
+- workbench runtime saves now go through mud-server policy APIs (`validate -> save -> optional activate`)
+- direct filesystem writes through `PUT /api/file` are disabled by design
+- current authoring pilot mapping is `species_block` (`image/blocks/species/*_v*.yaml`)
+- configure mud-server connectivity with:
+  - `PW_POLICY_MUD_API_BASE_URL` (default: `http://127.0.0.1:8000`)
+  - `PW_POLICY_MUD_SESSION_ID` (required unless provided in request payload)
+
 ## Current Layout
 
 - `src/policy_workbench/` - Python package and CLI entrypoint
