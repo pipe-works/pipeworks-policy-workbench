@@ -15,6 +15,7 @@ from pipeworks_ipc.hashing import compute_payload_hash
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
 from .pathing import resolve_policy_root
+from .policy_authoring import selector_from_relative_path
 from .sync_models import SyncAction, SyncActionType, SyncPlan
 from .sync_planner import build_sync_plan
 from .tree_model import build_policy_tree_snapshot
@@ -80,20 +81,28 @@ def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
     """Build serialized tree-browser payload for the web UI."""
 
     snapshot = build_policy_tree_snapshot(source_root)
-    artifacts = [
-        PolicyArtifactResponse(
-            relative_path=artifact.relative_path,
-            role=artifact.role.value,
-            has_prompt_text=bool((artifact.prompt_text or "").strip()),
+    artifacts: list[PolicyArtifactResponse] = []
+    for artifact in snapshot.artifacts:
+        if not _is_supported_editor_file(artifact.relative_path):
+            continue
+        selector = selector_from_relative_path(artifact.relative_path)
+        artifacts.append(
+            PolicyArtifactResponse(
+                relative_path=artifact.relative_path,
+                role=artifact.role.value,
+                has_prompt_text=bool((artifact.prompt_text or "").strip()),
+                policy_type=selector.policy_type if selector else None,
+                namespace=selector.namespace if selector else None,
+                policy_key=selector.policy_key if selector else None,
+                variant=selector.variant if selector else None,
+                is_authorable=selector is not None,
+            )
         )
-        for artifact in snapshot.artifacts
-        if _is_supported_editor_file(artifact.relative_path)
-    ]
 
     # The tree sidebar is intentionally scoped to editable policy files only.
     directory_set = {"policies"}
-    for artifact in artifacts:
-        parent = Path(artifact.relative_path).parent.as_posix()
+    for artifact_response in artifacts:
+        parent = Path(artifact_response.relative_path).parent.as_posix()
         if parent and parent != ".":
             directory_set.add(parent)
 

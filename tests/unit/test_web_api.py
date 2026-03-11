@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from policy_workbench import web_app as web_app_module
 from policy_workbench import web_services
+from policy_workbench.policy_authoring import PolicySaveResult
 from policy_workbench.web_app import create_web_app
 from policy_workbench.web_models import HashCanonicalResponse
 
@@ -82,8 +83,8 @@ def test_index_and_health_endpoints_return_expected_payloads(tmp_path: Path) -> 
     assert health_response.json() == {"status": "ok"}
 
 
-def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
-    """Tree and file APIs should support read/write loop with path safety."""
+def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
+    """Tree/file APIs should expose selector metadata and keep path safety."""
 
     client, source_root, _ = _build_client(tmp_path)
     _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
@@ -96,6 +97,25 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
     assert any(
         item["relative_path"] == "image/prompts/scene.txt" for item in tree_payload["artifacts"]
     )
+    species_artifact = next(
+        item
+        for item in tree_payload["artifacts"]
+        if item["relative_path"] == "image/blocks/species/goblin_v1.yaml"
+    )
+    assert species_artifact["is_authorable"] is True
+    assert species_artifact["policy_type"] == "species_block"
+    assert species_artifact["namespace"] == "image.blocks.species"
+    assert species_artifact["policy_key"] == "goblin"
+    assert species_artifact["variant"] == "v1"
+
+    prompt_artifact = next(
+        item
+        for item in tree_payload["artifacts"]
+        if item["relative_path"] == "image/prompts/scene.txt"
+    )
+    assert prompt_artifact["is_authorable"] is False
+    assert prompt_artifact["policy_type"] is None
+
     assert all(
         Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml"}
         for item in tree_payload["artifacts"]
@@ -111,12 +131,8 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
         "/api/file",
         json={"relative_path": "image/prompts/scene.txt", "content": "edited prompt text"},
     )
-    assert write_response.status_code == 200
-    assert write_response.json()["bytes_written"] == len(b"edited prompt text")
-
-    reread_response = client.get("/api/file", params={"relative_path": "image/prompts/scene.txt"})
-    assert reread_response.status_code == 200
-    assert reread_response.json()["content"] == "edited prompt text"
+    assert write_response.status_code == 410
+    assert "Direct file writes are disabled" in write_response.json()["detail"]
 
     traversal_response = client.get("/api/file", params={"relative_path": "../escape.txt"})
     assert traversal_response.status_code == 400
@@ -130,8 +146,85 @@ def test_tree_and_file_endpoints_support_editing_flow(tmp_path: Path) -> None:
         "/api/file",
         json={"relative_path": "image/notes.md", "content": "should fail"},
     )
-    assert unsupported_write_response.status_code == 400
-    assert "Only .txt, .yaml, and .yml" in unsupported_write_response.json()["detail"]
+    assert unsupported_write_response.status_code == 410
+    assert "Direct file writes are disabled" in unsupported_write_response.json()["detail"]
+
+
+def test_policy_save_endpoint_runs_phase2_api_only_flow(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Policy-save endpoint should call mud-server flow and return normalized payload."""
+    client, _, _ = _build_client(tmp_path)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "resolve_runtime_config",
+        lambda session_id_override=None: object(),
+    )
+    monkeypatch.setattr(
+        web_app_module,
+        "save_species_block_from_yaml",
+        lambda **kwargs: PolicySaveResult(
+            policy_id="species_block:image.blocks.species:goblin",
+            variant="v1",
+            policy_version=3,
+            content_hash="hash-123",
+            validation_run_id=55,
+            activation_audit_event_id=901,
+        ),
+    )
+
+    response = client.post(
+        "/api/policy-save",
+        json={
+            "policy_type": "species_block",
+            "namespace": "image.blocks.species",
+            "policy_key": "goblin",
+            "variant": "v1",
+            "raw_content": "text: |\n  Goblin body text.\n",
+            "schema_version": "1.0",
+            "status": "candidate",
+            "activate": True,
+            "world_id": "pipeworks_web",
+            "actor": "tester",
+            "session_id": "s1",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["policy_id"] == "species_block:image.blocks.species:goblin"
+    assert payload["variant"] == "v1"
+    assert payload["policy_version"] == 3
+    assert payload["validation_run_id"] == 55
+    assert payload["activated"] is True
+    assert payload["activation_audit_event_id"] == 901
+
+
+def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Policy-save endpoint should map runtime/config errors to HTTP 400."""
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_app_module,
+        "resolve_runtime_config",
+        lambda session_id_override=None: (_ for _ in ()).throw(ValueError("missing session id")),
+    )
+
+    response = client.post(
+        "/api/policy-save",
+        json={
+            "policy_type": "species_block",
+            "namespace": "image.blocks.species",
+            "policy_key": "goblin",
+            "variant": "v1",
+            "raw_content": "text: |\n  Goblin body text.\n",
+        },
+    )
+    assert response.status_code == 400
+    assert "missing session id" in response.json()["detail"]
 
 
 def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:

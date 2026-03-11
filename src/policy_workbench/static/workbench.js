@@ -52,6 +52,7 @@ const dom = {
 
 const state = {
   selectedPath: "",
+  selectedArtifact: null,
   fileIndex: [],
   sourceRoot: "",
   directoriesCount: 0,
@@ -582,7 +583,7 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
       roleSpan.textContent = artifact.role;
 
       button.append(pathSpan, roleSpan);
-      button.addEventListener("click", () => loadFile(artifact.relative_path));
+      button.addEventListener("click", () => loadFile(artifact.relative_path, artifact));
 
       fileItem.appendChild(button);
       filesList.appendChild(fileItem);
@@ -1288,11 +1289,22 @@ async function loadTree() {
   }
 }
 
-async function loadFile(relativePath) {
+function selectedPolicyLabel(artifact) {
+  if (!artifact || !artifact.is_authorable) {
+    return "read-only";
+  }
+  return `${artifact.policy_type}:${artifact.namespace}:${artifact.policy_key}:${artifact.variant}`;
+}
+
+async function loadFile(relativePath, artifact = null) {
   state.selectedPath = relativePath;
+  state.selectedArtifact = artifact || state.fileIndex.find(
+    (entry) => entry.relative_path === relativePath
+  ) || null;
   setEditorReadOnlyMode(false);
-  dom.editorPath.textContent = relativePath;
-  dom.editorPath.title = relativePath;
+  const policyLabel = selectedPolicyLabel(state.selectedArtifact);
+  dom.editorPath.textContent = `${relativePath} · ${policyLabel}`;
+  dom.editorPath.title = `${relativePath}\n${policyLabel}`;
   setStatus(`Loading ${relativePath}...`);
 
   try {
@@ -1300,6 +1312,11 @@ async function loadFile(relativePath) {
       `/api/file?relative_path=${encodeURIComponent(relativePath)}`
     );
     dom.fileEditor.value = payload.content;
+    if (!state.selectedArtifact || !state.selectedArtifact.is_authorable) {
+      setEditorReadOnlyMode(true);
+      setStatus(`Loaded ${relativePath} in read-only mode (not mapped to policy selector).`);
+      return;
+    }
     renderTree(state.fileIndex, state.sourceRoot, state.directoriesCount);
     setStatus(`Loaded ${relativePath}.`);
   } catch (error) {
@@ -1312,17 +1329,29 @@ async function saveCurrentFile() {
     setStatus("Select a file before saving.");
     return;
   }
+  if (!state.selectedArtifact || !state.selectedArtifact.is_authorable) {
+    setStatus("Selected file is read-only in Phase 2 (no canonical policy selector mapping).");
+    return;
+  }
 
-  setStatus(`Saving ${state.selectedPath}...`);
+  setStatus(`Saving ${state.selectedPath} via mud-server policy API...`);
   try {
-    await fetchJson("/api/file", {
-      method: "PUT",
+    const saveResult = await fetchJson("/api/policy-save", {
+      method: "POST",
       body: JSON.stringify({
-        relative_path: state.selectedPath,
-        content: dom.fileEditor.value,
+        policy_type: state.selectedArtifact.policy_type,
+        namespace: state.selectedArtifact.namespace,
+        policy_key: state.selectedArtifact.policy_key,
+        variant: state.selectedArtifact.variant,
+        raw_content: dom.fileEditor.value,
+        schema_version: "1.0",
+        status: "draft",
+        activate: false,
       }),
     });
-    setStatus(`Saved ${state.selectedPath}.`);
+    setStatus(
+      `Saved ${saveResult.policy_id}:${saveResult.variant} (v${saveResult.policy_version}).`
+    );
     markSyncPlanStale();
   } catch (error) {
     setStatus(`Save failed: ${error.message}`);

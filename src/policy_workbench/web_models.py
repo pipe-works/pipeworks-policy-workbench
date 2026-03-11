@@ -6,11 +6,21 @@ from pydantic import BaseModel, Field
 
 
 class PolicyArtifactResponse(BaseModel):
-    """Serializable policy artifact entry shown in the tree browser."""
+    """Serializable policy artifact entry shown in the tree browser.
+
+    ``policy_*`` fields represent the Phase 2 policy-object selector metadata.
+    ``is_authorable`` indicates whether runtime saves are allowed through
+    mud-server APIs for this artifact in the current pilot.
+    """
 
     relative_path: str
     role: str
     has_prompt_text: bool
+    policy_type: str | None = None
+    namespace: str | None = None
+    policy_key: str | None = None
+    variant: str | None = None
+    is_authorable: bool = False
 
 
 class PolicyTreeResponse(BaseModel):
@@ -42,6 +52,35 @@ class PolicyFileUpdateResponse(BaseModel):
     source_root: str
     relative_path: str
     bytes_written: int
+
+
+class PolicySaveRequest(BaseModel):
+    """Request payload for Phase 2 API-only policy save operations."""
+
+    policy_type: str = Field(min_length=1)
+    namespace: str = Field(min_length=1)
+    policy_key: str = Field(min_length=1)
+    variant: str = Field(min_length=1)
+    raw_content: str
+    schema_version: str = Field(default="1.0", min_length=1)
+    status: str = Field(default="draft", min_length=1)
+    activate: bool = False
+    world_id: str | None = None
+    client_profile: str | None = None
+    actor: str | None = None
+    session_id: str | None = None
+
+
+class PolicySaveResponse(BaseModel):
+    """Response payload for Phase 2 API-only policy save operations."""
+
+    policy_id: str
+    variant: str
+    policy_version: int
+    content_hash: str
+    validation_run_id: int
+    activated: bool
+    activation_audit_event_id: int | None
 
 
 class ValidationIssueResponse(BaseModel):
