@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.9](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.8...pipeworks-policy-workbench-v0.1.9) (2026-03-11)
+
+
+### Features
+
+* **workbench:** add activation scope controls for api saves ([#25](https://github.com/pipe-works/pipeworks-policy-workbench/issues/25)) ([b6c7426](https://github.com/pipe-works/pipeworks-policy-workbench/commit/b6c7426bdb45e01b4d6a75ac691cbd021fee84b6))
+* **workbench:** add api-first policy inventory and proxy read endpoints ([#23](https://github.com/pipe-works/pipeworks-policy-workbench/issues/23)) ([0f2bebf](https://github.com/pipe-works/pipeworks-policy-workbench/commit/0f2bebf0d21054858ec042e3fa368863b7f64fbb))
+
 ## [0.1.8](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.7...pipeworks-policy-workbench-v0.1.8) (2026-03-11)
 
 
