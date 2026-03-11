@@ -100,6 +100,33 @@
       <button id="btn-save-file" class="btn btn--primary" type="button">Save Policy</button>
       <button id="btn-reload-file" class="btn btn--secondary" type="button">Reload File</button>
     </div>
+
+    <section class="activation-shell" aria-label="Activation scope controls">
+      <div class="activation-shell__header">
+        <h3 class="panel__heading">Activation Scope</h3>
+        <label class="activation-toggle" for="activation-enable">
+          <input id="activation-enable" type="checkbox" />
+          <span>Activate after save</span>
+        </label>
+      </div>
+      <div class="activation-fields">
+        <label class="inventory-filter">
+          <span class="inventory-filter__label">World ID</span>
+          <input id="activation-world-id" class="input input--compact" type="text" value="pipeworks_web" />
+        </label>
+        <label class="inventory-filter">
+          <span class="inventory-filter__label">Client Profile (optional)</span>
+          <input id="activation-client-profile" class="input input--compact" type="text" placeholder="mobile" />
+        </label>
+      </div>
+      <div class="activation-shell__meta">
+        <button id="btn-refresh-activation" class="btn btn--secondary btn--sm" type="button">Refresh Scope Mapping</button>
+        <span id="activation-scope-label" class="meta-line">scope: pipeworks_web</span>
+      </div>
+      <div class="list-shell list-shell--compact list-shell--activation">
+        <ul id="activation-list" class="report-list"></ul>
+      </div>
+    </section>
   </section>
 
   <section class="panel panel--right" aria-label="Validation and Sync Impact">

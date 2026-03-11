@@ -61,6 +61,7 @@ Phase 2 web authoring behavior:
 - direct filesystem writes through `PUT /api/file` are disabled by design
 - current authoring pilot mapping is `species_block` (`image/blocks/species/*_v*.yaml`)
 - center panel now includes API-first policy inventory filters/selectors (`policy_type`, `namespace`, `status`)
+- center panel includes activation scope controls (`world_id`, optional `client_profile`) for save+activate flow
 - inventory-backed object loading uses:
   - `GET /api/policies`
   - `GET /api/policies/{policy_id}`
