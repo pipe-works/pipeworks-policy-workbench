@@ -181,6 +181,136 @@ def test_build_runtime_auth_payload_reports_forbidden_role(monkeypatch) -> None:
     assert "role is not admin/superuser" in payload.detail
 
 
+def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> None:
+    """Runtime login helper should return session data and enforce allowed roles."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {
+            "session_id": "session-admin-1",
+            "role": "admin",
+            "success": True,
+        },
+    )
+    success_payload = web_services.build_runtime_login_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        username="admin-user",
+        password="secret",
+    )
+    assert success_payload.success is True
+    assert success_payload.session_id == "session-admin-1"
+    assert success_payload.role == "admin"
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {
+            "session_id": "session-player-1",
+            "role": "player",
+            "success": True,
+        },
+    )
+    forbidden_payload = web_services.build_runtime_login_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        username="player-user",
+        password="secret",
+    )
+    assert forbidden_payload.success is False
+    assert forbidden_payload.session_id == "session-player-1"
+    assert forbidden_payload.role == "player"
+    assert "not admin/superuser" in forbidden_payload.detail
+
+
+def test_build_runtime_login_payload_rejects_offline_and_missing_credentials() -> None:
+    """Runtime login helper should reject offline mode and blank credentials."""
+
+    with pytest.raises(ValueError, match="Offline mode active"):
+        web_services.build_runtime_login_payload(
+            mode_key="offline",
+            source_kind="local_disk",
+            active_server_url=None,
+            username="admin",
+            password="secret",
+        )
+
+    with pytest.raises(ValueError, match="Username is required"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username=" ",
+            password="secret",
+        )
+
+    with pytest.raises(ValueError, match="Password is required"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username="admin",
+            password=" ",
+        )
+
+
+def test_build_runtime_login_payload_rejects_empty_base_url_and_invalid_login_payload(
+    monkeypatch,
+) -> None:
+    """Runtime login helper should fail fast for empty URL and malformed login responses."""
+
+    with pytest.raises(ValueError, match="base URL must not be empty"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="   ",
+            username="admin",
+            password="secret",
+        )
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {"role": "admin"},
+    )
+    with pytest.raises(ValueError, match="did not include session_id"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username="admin",
+            password="secret",
+        )
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {"session_id": "session-1"},
+    )
+    with pytest.raises(ValueError, match="did not include role"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username="admin",
+            password="secret",
+        )
+
+
+def test_normalize_base_url_trims_and_handles_blank_values() -> None:
+    """Base URL normalizer should trim trailing slash and keep blank values stable."""
+
+    assert (
+        web_services._normalize_base_url(" https://dev.example.test/ ")
+        == "https://dev.example.test"
+    )
+    assert web_services._normalize_base_url("  ") == ""
+    assert web_services._normalize_base_url(None) == ""
+
+
 def test_fetch_mud_api_json_builds_url_and_returns_object_payload(monkeypatch) -> None:
     """Transport helper should append session_id and parse object JSON responses."""
 
@@ -280,6 +410,98 @@ def test_fetch_mud_api_json_maps_http_transport_and_schema_errors(monkeypatch) -
             method="GET",
             path="/api/policies",
             query_params={},
+        )
+
+
+def test_fetch_mud_api_json_anonymous_covers_success_and_failures(monkeypatch) -> None:
+    """Anonymous transport helper should serialize body and normalize failure contracts."""
+
+    class _FakeHttpResponse:
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> _FakeHttpResponse:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps(self._payload).encode("utf-8")
+
+    captured: dict[str, object] = {}
+
+    def _fake_urlopen(request, timeout=8.0):  # noqa: ANN001
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["timeout"] = timeout
+        captured["body"] = request.data.decode("utf-8") if request.data else ""
+        return _FakeHttpResponse({"session_id": "session-1", "role": "admin"})
+
+    monkeypatch.setattr(web_services, "urlopen", _fake_urlopen)
+    payload = web_services._fetch_mud_api_json_anonymous(
+        base_url="http://mud.local:8000",
+        method="POST",
+        path="/login",
+        body={"username": "admin", "password": "secret"},
+        timeout_seconds=3.5,
+    )
+    assert payload["session_id"] == "session-1"
+    assert captured == {
+        "url": "http://mud.local:8000/login",
+        "method": "POST",
+        "timeout": 3.5,
+        "body": '{"username": "admin", "password": "secret"}',
+    }
+
+    http_error = HTTPError(
+        url="http://mud.local:8000/login",
+        code=401,
+        msg="Unauthorized",
+        hdrs=None,
+        fp=io.BytesIO(b'{"detail":"bad credentials"}'),
+    )
+    monkeypatch.setattr(
+        web_services, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(http_error)
+    )
+    with pytest.raises(ValueError, match="bad credentials"):
+        web_services._fetch_mud_api_json_anonymous(
+            base_url="http://mud.local:8000",
+            method="POST",
+            path="/login",
+            body={"username": "admin", "password": "secret"},
+        )
+
+    monkeypatch.setattr(
+        web_services,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("connection refused")),
+    )
+    with pytest.raises(ValueError, match="connection refused"):
+        web_services._fetch_mud_api_json_anonymous(
+            base_url="http://mud.local:8000",
+            method="POST",
+            path="/login",
+            body={"username": "admin", "password": "secret"},
+        )
+
+    class _ArrayHttpResponse:
+        def __enter__(self) -> _ArrayHttpResponse:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def read(self) -> bytes:
+            return b'["invalid"]'
+
+    monkeypatch.setattr(web_services, "urlopen", lambda *_args, **_kwargs: _ArrayHttpResponse())
+    with pytest.raises(ValueError, match="must be a JSON object"):
+        web_services._fetch_mud_api_json_anonymous(
+            base_url="http://mud.local:8000",
+            method="POST",
+            path="/login",
+            body={"username": "admin", "password": "secret"},
         )
 
 

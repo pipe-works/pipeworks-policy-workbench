@@ -22,6 +22,7 @@ from policy_workbench.web_models import (
     PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
     RuntimeAuthResponse,
+    RuntimeLoginResponse,
 )
 
 
@@ -77,6 +78,16 @@ def _build_client(tmp_path: Path) -> tuple[TestClient, Path, Path]:
     return TestClient(app), source_root, target_root
 
 
+def _set_server_dev_mode(client: TestClient) -> None:
+    """Switch runtime mode to server_dev for API-backed endpoint tests."""
+
+    mode_response = client.post(
+        "/api/runtime-mode",
+        json={"mode_key": "server_dev", "server_url": "http://127.0.0.1:8000"},
+    )
+    assert mode_response.status_code == 200
+
+
 def test_index_and_health_endpoints_return_expected_payloads(tmp_path: Path) -> None:
     """Root HTML and health endpoints should be available for runtime checks."""
 
@@ -98,9 +109,9 @@ def test_runtime_mode_endpoints_switch_between_offline_and_server_profiles(tmp_p
     initial_response = client.get("/api/runtime-mode")
     assert initial_response.status_code == 200
     initial_payload = initial_response.json()
-    assert initial_payload["mode_key"] == "server_dev"
-    assert initial_payload["source_kind"] == "server_api"
-    assert initial_payload["active_server_url"] == "http://127.0.0.1:8000"
+    assert initial_payload["mode_key"] == "offline"
+    assert initial_payload["source_kind"] == "local_disk"
+    assert initial_payload["active_server_url"] is None
     assert any(option["mode_key"] == "offline" for option in initial_payload["options"])
 
     offline_response = client.post(
@@ -142,6 +153,7 @@ def test_runtime_auth_endpoint_returns_service_payload(tmp_path: Path, monkeypat
     """Runtime-auth endpoint should expose auth probe payload for current source mode."""
 
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
     captured: dict[str, object] = {}
 
     def _fake_runtime_auth_builder(**kwargs):
@@ -171,6 +183,64 @@ def test_runtime_auth_endpoint_returns_service_payload(tmp_path: Path, monkeypat
         "session_id_override": None,
         "base_url_override": "http://127.0.0.1:8000",
     }
+
+
+def test_runtime_login_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
+    """Runtime-login endpoint should proxy login helper and return session metadata."""
+
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+    captured: dict[str, object] = {}
+
+    def _fake_runtime_login_builder(**kwargs):
+        captured.update(kwargs)
+        return RuntimeLoginResponse(
+            success=True,
+            session_id="session-admin-1",
+            role="admin",
+            detail="Authenticated as admin/superuser.",
+        )
+
+    monkeypatch.setattr(web_app_module, "build_runtime_login_payload", _fake_runtime_login_builder)
+
+    response = client.post(
+        "/api/runtime-login",
+        json={"username": "admin-user", "password": "secret"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["session_id"] == "session-admin-1"
+    assert payload["role"] == "admin"
+    assert captured == {
+        "mode_key": "server_dev",
+        "source_kind": "server_api",
+        "active_server_url": "http://127.0.0.1:8000",
+        "username": "admin-user",
+        "password": "secret",
+        "base_url_override": "http://127.0.0.1:8000",
+    }
+
+
+def test_runtime_login_endpoint_maps_offline_error_to_503(tmp_path: Path, monkeypatch) -> None:
+    """Runtime-login endpoint should return 503 when offline mode blocks login."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_app_module,
+        "build_runtime_login_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("Offline mode active. Switch to a mud-server profile before logging in.")
+        ),
+    )
+
+    response = client.post(
+        "/api/runtime-login",
+        json={"username": "admin-user", "password": "secret"},
+    )
+    assert response.status_code == 503
+    assert "Offline mode active" in response.json()["detail"]
 
 
 def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
@@ -291,6 +361,7 @@ def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
 ) -> None:
     """API-first inventory/detail endpoints should proxy mud-server payload models."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
 
     captured_inventory_kwargs: dict[str, object] = {}
     captured_detail_kwargs: dict[str, object] = {}
@@ -371,6 +442,7 @@ def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
 def test_api_first_activation_and_publish_proxy_endpoints(tmp_path: Path, monkeypatch) -> None:
     """Activation/publish proxy endpoints should return normalized service payloads."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
 
     monkeypatch.setattr(
         web_app_module,
@@ -427,6 +499,7 @@ def test_api_first_proxy_endpoints_map_service_errors_to_http_400(
 ) -> None:
     """API-first proxy endpoints should map service ValueError failures to HTTP 400."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
 
     monkeypatch.setattr(
         web_app_module,
@@ -474,6 +547,7 @@ def test_api_first_proxy_endpoints_map_auth_failures_to_401_and_403(
 ) -> None:
     """Proxy endpoints should preserve mud-server auth semantics (401/403)."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
 
     monkeypatch.setattr(
         web_app_module,
@@ -528,6 +602,7 @@ def test_policy_save_endpoint_runs_phase2_api_only_flow(
 ) -> None:
     """Policy-save endpoint should call mud-server flow and return normalized payload."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
 
     monkeypatch.setattr(
         web_app_module,
@@ -579,6 +654,7 @@ def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
 ) -> None:
     """Policy-save endpoint should map runtime/config errors to HTTP 400."""
     client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
     monkeypatch.setattr(
         web_app_module,
         "resolve_runtime_config",

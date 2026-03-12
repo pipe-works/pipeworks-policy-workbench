@@ -6,6 +6,9 @@ const dom = {
   runtimeModeSelect: document.getElementById("runtime-mode-select"),
   runtimeModeUrl: document.getElementById("runtime-mode-url"),
   runtimeModeApply: document.getElementById("runtime-mode-apply"),
+  runtimeLoginUsername: document.getElementById("runtime-login-username"),
+  runtimeLoginPassword: document.getElementById("runtime-login-password"),
+  runtimeLoginApply: document.getElementById("runtime-login-apply"),
   runtimeModeUrlLabel: document.getElementById("runtime-mode-url-label"),
   runtimeAuthLabel: document.getElementById("runtime-auth-label"),
   treeSourceBadge: document.getElementById("tree-source-badge"),
@@ -102,6 +105,7 @@ const state = {
   latestActivationPayload: null,
   runtimeMode: null,
   runtimeAuth: null,
+  runtimeSessionId: "",
   runtimeModeOptionsByKey: new Map(),
 };
 
@@ -121,11 +125,30 @@ function setStatus(message) {
   dom.statusText.textContent = message;
 }
 
+function setRuntimeSessionId(sessionId) {
+  state.runtimeSessionId = String(sessionId || "").trim();
+}
+
+function sessionScopedUrl(urlPath) {
+  const sessionId = (state.runtimeSessionId || "").trim();
+  if (!sessionId) {
+    return urlPath;
+  }
+
+  const url = new URL(urlPath, window.location.origin);
+  url.searchParams.set("session_id", sessionId);
+  const queryText = url.searchParams.toString();
+  return queryText ? `${url.pathname}?${queryText}` : url.pathname;
+}
+
 function runtimeModeLabel() {
   if (!state.runtimeMode) {
     return "Unknown";
   }
-  const option = state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key);
+  const option = state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key)
+    || (state.runtimeMode.options || []).find(
+      (candidate) => candidate.mode_key === state.runtimeMode.mode_key
+    );
   return option?.label || state.runtimeMode.mode_key;
 }
 
@@ -139,6 +162,10 @@ function isServerApiMode() {
 
 function isServerAuthorized() {
   return isServerApiMode() && Boolean(state.runtimeAuth?.access_granted);
+}
+
+function isRuntimeSessionAuthorized() {
+  return isServerAuthorized() && Boolean((state.runtimeSessionId || "").trim());
 }
 
 function activeRuntimeModeOption() {
@@ -225,15 +252,34 @@ function setRuntimeAuthIndicators() {
 }
 
 function setSourceBadges() {
-  if (dom.treeSourceBadge) {
-    dom.treeSourceBadge.className = "badge badge--info";
-    dom.treeSourceBadge.textContent = "Local Disk";
-    dom.treeSourceBadge.title = "Policy tree and raw file reads are sourced from local disk.";
-  }
-
   const serverEnabled = isServerApiMode();
+  const modeKey = String(state.runtimeMode?.mode_key || "");
   const modeLabel = runtimeModeLabel();
   const activeUrl = activeRuntimeServerUrl();
+
+  if (dom.treeSourceBadge) {
+    if (!serverEnabled) {
+      dom.treeSourceBadge.className = "badge badge--muted";
+      dom.treeSourceBadge.textContent = "Offline: Local Disk";
+      dom.treeSourceBadge.title = "Policy tree and raw file reads are sourced from local disk in offline mode.";
+    } else {
+      const treeModeLabel = modeKey === "server_prod" ? "Production" : "Development";
+      if (isServerAuthorized()) {
+        dom.treeSourceBadge.className = "badge badge--info";
+        dom.treeSourceBadge.textContent = `${treeModeLabel}: ${activeUrl || "--"}`;
+        dom.treeSourceBadge.title = activeUrl
+          ? `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel} at ${activeUrl}.`
+          : `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel}.`;
+      } else {
+        dom.treeSourceBadge.className = "badge badge--warn";
+        dom.treeSourceBadge.textContent = `${treeModeLabel}: Login required`;
+        dom.treeSourceBadge.title = activeUrl
+          ? `Sign in as admin/superuser to activate ${treeModeLabel} server API features at ${activeUrl}.`
+          : `Sign in as admin/superuser to activate ${treeModeLabel} server API features.`;
+      }
+    }
+  }
+
   const serverBadgeText = serverEnabled
     ? `${modeLabel}${activeUrl ? ` · ${activeUrl}` : ""}`
     : "Offline (server disabled)";
@@ -310,9 +356,11 @@ function applyRuntimeModeControls() {
   }
 
   const activeOption = activeRuntimeModeOption();
-  const editableServerUrl = Boolean(activeOption?.url_editable);
+  const editableServerUrl = isServerApiMode();
   const activeServerUrl = activeRuntimeServerUrl();
   const defaultServerUrl = (activeOption?.default_server_url || "").trim();
+  const usernameValue = (dom.runtimeLoginUsername?.value || "").trim();
+  const passwordValue = (dom.runtimeLoginPassword?.value || "").trim();
 
   if (dom.runtimeModeUrl) {
     dom.runtimeModeUrl.classList.toggle("hidden", !editableServerUrl);
@@ -321,6 +369,22 @@ function applyRuntimeModeControls() {
   if (dom.runtimeModeApply) {
     dom.runtimeModeApply.classList.toggle("hidden", !editableServerUrl);
     dom.runtimeModeApply.disabled = !editableServerUrl || !(dom.runtimeModeUrl?.value || "").trim();
+  }
+  if (dom.runtimeLoginUsername) {
+    dom.runtimeLoginUsername.classList.toggle("hidden", !editableServerUrl);
+  }
+  if (dom.runtimeLoginPassword) {
+    dom.runtimeLoginPassword.classList.toggle("hidden", !editableServerUrl);
+  }
+  if (dom.runtimeLoginApply) {
+    dom.runtimeLoginApply.classList.toggle("hidden", !editableServerUrl);
+    if (isRuntimeSessionAuthorized()) {
+      dom.runtimeLoginApply.textContent = "Logout";
+      dom.runtimeLoginApply.disabled = !editableServerUrl;
+    } else {
+      dom.runtimeLoginApply.textContent = "Login";
+      dom.runtimeLoginApply.disabled = !editableServerUrl || !usernameValue || !passwordValue;
+    }
   }
   if (dom.runtimeModeUrlLabel) {
     if (!isServerApiMode()) {
@@ -387,9 +451,7 @@ function applyRuntimeModeState(runtimeModePayload) {
 
 function applyRuntimeAuthState(runtimeAuthPayload) {
   state.runtimeAuth = runtimeAuthPayload;
-  setRuntimeAuthIndicators();
-  setSourceBadges();
-  updateStatusSourceLine();
+  applyRuntimeModeControls();
   setServerFeatureAvailability();
 }
 
@@ -400,7 +462,7 @@ async function getRuntimeModeState() {
 
 async function refreshRuntimeAuthState({ silent = false } = {}) {
   try {
-    const payload = await fetchJson("/api/runtime-auth");
+    const payload = await fetchJson(sessionScopedUrl("/api/runtime-auth"));
     applyRuntimeAuthState(payload);
     if (!silent && payload.status === "authorized") {
       setStatus("Session authorized (admin/superuser).");
@@ -452,6 +514,8 @@ async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
     body: JSON.stringify(requestPayload),
   });
   applyRuntimeModeState(payload);
+  // Mode or URL changes invalidate prior runtime login context.
+  setRuntimeSessionId("");
   const runtimeAuth = await refreshRuntimeAuthState({ silent: true });
 
   if (isServerAuthorized()) {
@@ -472,6 +536,86 @@ async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
       );
     }
   }
+}
+
+async function loginRuntimeSession() {
+  if (!isServerApiMode()) {
+    setStatus("Login unavailable in offline mode.");
+    return;
+  }
+
+  const username = (dom.runtimeLoginUsername?.value || "").trim();
+  const password = (dom.runtimeLoginPassword?.value || "").trim();
+  if (!username || !password) {
+    setStatus("Username and password are required for runtime login.");
+    return;
+  }
+
+  setStatus(`Logging in to ${runtimeModeLabel()}...`);
+  try {
+    const payload = await fetchJson("/api/runtime-login", {
+      method: "POST",
+      body: JSON.stringify({
+        username,
+        password,
+      }),
+    });
+    if (!payload.success || !payload.session_id) {
+      setStatus(payload.detail || "Runtime login failed.");
+      return;
+    }
+
+    setRuntimeSessionId(payload.session_id);
+    if (dom.runtimeLoginPassword) {
+      dom.runtimeLoginPassword.value = "";
+    }
+    await refreshRuntimeAuthState({ silent: true });
+    applyRuntimeModeControls();
+    setServerFeatureAvailability();
+
+    if (isServerAuthorized()) {
+      await refreshPolicyInventory();
+      await refreshActivationScope({ silent: true });
+      setStatus(`Login successful as ${payload.role}.`);
+      return;
+    }
+
+    setStatus(payload.detail || "Login succeeded, but role is not authorized.");
+  } catch (error) {
+    setStatus(`Runtime login failed: ${error.message}`);
+  }
+}
+
+async function logoutRuntimeSession() {
+  if (!isServerApiMode()) {
+    setStatus("Logout unavailable in offline mode.");
+    return;
+  }
+  if (!(state.runtimeSessionId || "").trim()) {
+    setStatus("No active runtime session to log out.");
+    return;
+  }
+
+  setRuntimeSessionId("");
+  if (dom.runtimeLoginPassword) {
+    dom.runtimeLoginPassword.value = "";
+  }
+  await refreshRuntimeAuthState({ silent: true });
+  applyRuntimeModeControls();
+  setServerFeatureAvailability();
+
+  state.inventoryItems = [];
+  renderPolicyInventory([]);
+  renderActivationMessage("Server mode connected, but no session id is configured.");
+  setStatus(`Logged out from ${runtimeModeLabel()}.`);
+}
+
+async function handleRuntimeLoginButtonAction() {
+  if (isRuntimeSessionAuthorized()) {
+    await logoutRuntimeSession();
+    return;
+  }
+  await loginRuntimeSession();
 }
 
 function setEditorReadOnlyMode(isReadOnly) {
@@ -1053,7 +1197,7 @@ async function refreshPolicyInventory() {
   try {
     const query = buildPolicyInventoryQueryString();
     const suffix = query ? `?${query}` : "";
-    const payload = await fetchJson(`/api/policies${suffix}`);
+    const payload = await fetchJson(sessionScopedUrl(`/api/policies${suffix}`));
     renderPolicyInventory(payload.items || []);
     setStatus(`Policy inventory loaded (${payload.item_count || 0} items).`);
   } catch (error) {
@@ -1077,7 +1221,9 @@ async function loadPolicyObject(policyId, variant = "") {
       query.set("variant", variant.trim());
     }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    const payload = await fetchJson(`/api/policies/${encodeURIComponent(policyId)}${suffix}`);
+    const payload = await fetchJson(
+      sessionScopedUrl(`/api/policies/${encodeURIComponent(policyId)}${suffix}`)
+    );
     setEditorFromPolicyRecord(payload);
     renderPolicyInventory(state.inventoryItems);
     setStatus(`Loaded ${payload.policy_id}:${payload.variant} from mud-server API.`);
@@ -1195,7 +1341,9 @@ async function refreshActivationScope({ silent = false } = {}) {
       scope,
       effective: "true",
     });
-    const payload = await fetchJson(`/api/policy-activations-live?${query.toString()}`);
+    const payload = await fetchJson(
+      sessionScopedUrl(`/api/policy-activations-live?${query.toString()}`)
+    );
     renderActivationScopePayload(payload);
     if (!silent) {
       const itemCount = Array.isArray(payload?.items) ? payload.items.length : 0;
@@ -2053,6 +2201,9 @@ async function saveCurrentFile() {
       status: "draft",
       activate: activateAfterSave,
     };
+    if ((state.runtimeSessionId || "").trim()) {
+      savePayload.session_id = state.runtimeSessionId.trim();
+    }
     if (activateAfterSave) {
       savePayload.world_id = activationScope.worldId;
       if (activationScope.clientProfile) {
@@ -2250,6 +2401,29 @@ async function init() {
       } catch (error) {
         setStatus(`Runtime mode URL update failed: ${error.message}`);
       }
+    });
+  }
+  if (dom.runtimeLoginUsername) {
+    dom.runtimeLoginUsername.addEventListener("input", applyRuntimeModeControls);
+    dom.runtimeLoginUsername.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        await loginRuntimeSession();
+      }
+    });
+  }
+  if (dom.runtimeLoginPassword) {
+    dom.runtimeLoginPassword.addEventListener("input", applyRuntimeModeControls);
+    dom.runtimeLoginPassword.addEventListener("keydown", async (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        await loginRuntimeSession();
+      }
+    });
+  }
+  if (dom.runtimeLoginApply) {
+    dom.runtimeLoginApply.addEventListener("click", async () => {
+      await handleRuntimeLoginButtonAction();
     });
   }
   if (dom.runtimeModeApply) {

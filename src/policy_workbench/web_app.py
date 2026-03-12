@@ -35,6 +35,8 @@ from .web_models import (
     PolicySaveResponse,
     PolicyTreeResponse,
     RuntimeAuthResponse,
+    RuntimeLoginRequest,
+    RuntimeLoginResponse,
     RuntimeModeOptionResponse,
     RuntimeModeRequest,
     RuntimeModeResponse,
@@ -51,6 +53,7 @@ from .web_services import (
     build_policy_object_detail_payload,
     build_policy_publish_run_payload,
     build_runtime_auth_payload,
+    build_runtime_login_payload,
     build_sync_compare_payload,
     build_sync_payload,
     build_sync_plan_for_apply,
@@ -153,6 +156,26 @@ def create_web_app(
             session_id_override=session_id,
             base_url_override=state.active_server_url,
         )
+
+    @app.post("/api/runtime-login", response_model=RuntimeLoginResponse)
+    async def api_runtime_login(payload: RuntimeLoginRequest) -> RuntimeLoginResponse:
+        """Authenticate to active mud-server profile and return session bootstrap data."""
+        state = get_runtime_mode()
+        try:
+            return build_runtime_login_payload(
+                mode_key=state.mode_key,
+                source_kind=state.source_kind,
+                active_server_url=state.active_server_url,
+                username=payload.username,
+                password=payload.password,
+                base_url_override=state.active_server_url,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            status = (
+                503 if "Offline mode active" in detail else _status_code_for_mud_api_error(detail)
+            )
+            raise HTTPException(status_code=status, detail=detail) from exc
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
