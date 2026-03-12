@@ -55,8 +55,6 @@
     <button id="runtime-login-apply" class="btn btn--secondary btn--sm hidden" type="button">
       Login
     </button>
-    <span id="runtime-mode-url-label" class="runtime-mode-url">Loading runtime mode...</span>
-    <span id="runtime-auth-label" class="runtime-mode-url">Checking session access...</span>
   </div>
 </section>
 
@@ -124,15 +122,21 @@
       <div class="inventory-filters">
         <label class="inventory-filter">
           <span class="inventory-filter__label">Type</span>
-          <input id="inventory-policy-type" class="input input--compact" type="text" placeholder="species_block" />
+          <select id="inventory-policy-type" class="select input--compact" aria-label="Policy type filter">
+            <option value="">All types</option>
+          </select>
         </label>
         <label class="inventory-filter">
           <span class="inventory-filter__label">Namespace</span>
-          <input id="inventory-namespace" class="input input--compact" type="text" placeholder="image.blocks.species" />
+          <select id="inventory-namespace" class="select input--compact" aria-label="Policy namespace filter">
+            <option value="">All namespaces</option>
+          </select>
         </label>
         <label class="inventory-filter">
           <span class="inventory-filter__label">Status</span>
-          <input id="inventory-status" class="input input--compact" type="text" placeholder="draft|candidate|active" />
+          <select id="inventory-status" class="select input--compact" aria-label="Policy status filter">
+            <option value="">All statuses</option>
+          </select>
         </label>
         <span id="inventory-count" class="meta-line">0 policies</span>
       </div>

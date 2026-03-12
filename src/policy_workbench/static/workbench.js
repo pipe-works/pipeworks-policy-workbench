@@ -412,13 +412,15 @@ function setServerFeatureAvailability() {
     dom.btnRefreshInventory.disabled = !serverAuthorized;
   }
   if (dom.inventoryPolicyType) {
-    dom.inventoryPolicyType.disabled = !serverAuthorized;
+    // Keep canonical policy-type selector available in all modes so users can
+    // preselect filters before logging in or switching server profile.
+    dom.inventoryPolicyType.disabled = false;
   }
   if (dom.inventoryNamespace) {
-    dom.inventoryNamespace.disabled = !serverAuthorized;
+    dom.inventoryNamespace.disabled = false;
   }
   if (dom.inventoryStatus) {
-    dom.inventoryStatus.disabled = !serverAuthorized;
+    dom.inventoryStatus.disabled = false;
   }
   if (dom.btnRefreshActivation) {
     dom.btnRefreshActivation.disabled = !serverAuthorized;
@@ -483,6 +485,116 @@ async function refreshRuntimeAuthState({ silent = false } = {}) {
   }
 }
 
+function renderPolicyTypeOptions(payload) {
+  renderSelectOptions({
+    selectElement: dom.inventoryPolicyType,
+    allLabel: "All types",
+    options: Array.isArray(payload?.items) ? payload.items : [],
+  });
+}
+
+function renderPolicyNamespaceOptions(payload) {
+  renderSelectOptions({
+    selectElement: dom.inventoryNamespace,
+    allLabel: "All namespaces",
+    options: Array.isArray(payload?.items) ? payload.items : [],
+  });
+}
+
+function renderPolicyStatusOptions(payload) {
+  renderSelectOptions({
+    selectElement: dom.inventoryStatus,
+    allLabel: "All statuses",
+    options: Array.isArray(payload?.items) ? payload.items : [],
+  });
+}
+
+function renderSelectOptions({
+  selectElement,
+  allLabel,
+  options,
+}) {
+  if (!selectElement) {
+    return;
+  }
+
+  const previouslySelected = (selectElement.value || "").trim();
+  const normalizedOptions = (options || [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  selectElement.innerHTML = "";
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = allLabel;
+  selectElement.appendChild(allOption);
+
+  for (const optionValue of normalizedOptions) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    selectElement.appendChild(option);
+  }
+
+  if (previouslySelected && normalizedOptions.includes(previouslySelected)) {
+    selectElement.value = previouslySelected;
+  }
+}
+
+async function refreshPolicyTypeOptions({ silent = true } = {}) {
+  try {
+    const payload = await fetchJson(sessionScopedUrl("/api/policy-types"));
+    renderPolicyTypeOptions(payload);
+    if (!silent && payload?.detail) {
+      setStatus(payload.detail);
+    }
+  } catch (error) {
+    if (!silent) {
+      setStatus(`Policy type options load failed: ${error.message}`);
+    }
+  }
+}
+
+async function refreshPolicyNamespaceOptions({ silent = true } = {}) {
+  const selectedPolicyType = (dom.inventoryPolicyType?.value || "").trim();
+  const query = new URLSearchParams();
+  if (selectedPolicyType) {
+    query.set("policy_type", selectedPolicyType);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  try {
+    const payload = await fetchJson(sessionScopedUrl(`/api/policy-namespaces${suffix}`));
+    renderPolicyNamespaceOptions(payload);
+    if (!silent && payload?.detail) {
+      setStatus(payload.detail);
+    }
+  } catch (error) {
+    if (!silent) {
+      setStatus(`Policy namespace options load failed: ${error.message}`);
+    }
+  }
+}
+
+async function refreshPolicyStatusOptions({ silent = true } = {}) {
+  try {
+    const payload = await fetchJson("/api/policy-statuses");
+    renderPolicyStatusOptions(payload);
+    if (!silent && payload?.detail) {
+      setStatus(payload.detail);
+    }
+  } catch (error) {
+    if (!silent) {
+      setStatus(`Policy status options load failed: ${error.message}`);
+    }
+  }
+}
+
+async function refreshPolicyFilterOptions({ silent = true } = {}) {
+  await refreshPolicyTypeOptions({ silent });
+  await refreshPolicyNamespaceOptions({ silent });
+  await refreshPolicyStatusOptions({ silent });
+}
+
 function selectedRuntimeModeServerUrl(modeKey) {
   const option = state.runtimeModeOptionsByKey.get(modeKey) || null;
   if (!option || option.source_kind !== "server_api") {
@@ -517,6 +629,7 @@ async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
   // Mode or URL changes invalidate prior runtime login context.
   setRuntimeSessionId("");
   const runtimeAuth = await refreshRuntimeAuthState({ silent: true });
+  await refreshPolicyFilterOptions({ silent: true });
 
   if (isServerAuthorized()) {
     await refreshPolicyInventory();
@@ -570,6 +683,7 @@ async function loginRuntimeSession() {
       dom.runtimeLoginPassword.value = "";
     }
     await refreshRuntimeAuthState({ silent: true });
+    await refreshPolicyFilterOptions({ silent: true });
     applyRuntimeModeControls();
     setServerFeatureAvailability();
 
@@ -601,6 +715,7 @@ async function logoutRuntimeSession() {
     dom.runtimeLoginPassword.value = "";
   }
   await refreshRuntimeAuthState({ silent: true });
+  await refreshPolicyFilterOptions({ silent: true });
   applyRuntimeModeControls();
   setServerFeatureAvailability();
 
@@ -2317,6 +2432,7 @@ async function init() {
   try {
     await getRuntimeModeState();
     await refreshRuntimeAuthState({ silent: true });
+    await refreshPolicyFilterOptions({ silent: true });
   } catch (error) {
     setStatus(`Runtime mode load failed: ${error.message}`);
   }
@@ -2447,17 +2563,27 @@ async function init() {
     dom.btnRefreshInventory.addEventListener("click", refreshPolicyInventory);
   }
   if (dom.inventoryPolicyType) {
-    dom.inventoryPolicyType.addEventListener("change", () => {
-      void refreshPolicyInventory();
+    dom.inventoryPolicyType.addEventListener("change", async () => {
+      await refreshPolicyNamespaceOptions({ silent: true });
+      if (!isServerAuthorized()) {
+        return;
+      }
+      await refreshPolicyInventory();
     });
   }
   if (dom.inventoryNamespace) {
     dom.inventoryNamespace.addEventListener("change", () => {
+      if (!isServerAuthorized()) {
+        return;
+      }
       void refreshPolicyInventory();
     });
   }
   if (dom.inventoryStatus) {
     dom.inventoryStatus.addEventListener("change", () => {
+      if (!isServerAuthorized()) {
+        return;
+      }
       void refreshPolicyInventory();
     });
   }

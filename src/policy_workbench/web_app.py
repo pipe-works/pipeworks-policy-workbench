@@ -34,6 +34,7 @@ from .web_models import (
     PolicySaveRequest,
     PolicySaveResponse,
     PolicyTreeResponse,
+    PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginRequest,
     RuntimeLoginResponse,
@@ -50,8 +51,11 @@ from .web_services import (
     build_hash_status_payload,
     build_policy_activation_scope_payload,
     build_policy_inventory_payload,
+    build_policy_namespace_options_payload,
     build_policy_object_detail_payload,
     build_policy_publish_run_payload,
+    build_policy_status_options_payload,
+    build_policy_type_options_payload,
     build_runtime_auth_payload,
     build_runtime_login_payload,
     build_sync_compare_payload,
@@ -176,6 +180,45 @@ def create_web_app(
                 503 if "Offline mode active" in detail else _status_code_for_mud_api_error(detail)
             )
             raise HTTPException(status_code=status, detail=detail) from exc
+
+    @app.get("/api/policy-types", response_model=PolicyTypeOptionsResponse)
+    async def api_policy_types(
+        session_id: str | None = Query(default=None),
+    ) -> PolicyTypeOptionsResponse:
+        """Return canonical policy-type options for inventory filtering."""
+        state = get_runtime_mode()
+        return build_policy_type_options_payload(
+            source_kind=state.source_kind,
+            active_server_url=state.active_server_url,
+            session_id_override=session_id,
+            base_url_override=state.active_server_url,
+        )
+
+    @app.get("/api/policy-namespaces", response_model=PolicyTypeOptionsResponse)
+    async def api_policy_namespaces(
+        policy_type: str | None = Query(default=None),
+        session_id: str | None = Query(default=None),
+    ) -> PolicyTypeOptionsResponse:
+        """Return canonical policy namespace options for inventory filtering."""
+        state = get_runtime_mode()
+        source_root = resolve_source_root_for_web(
+            root_override=source_root_override,
+            map_path_override=map_path_override,
+        )
+        return build_policy_namespace_options_payload(
+            source_root=source_root,
+            source_kind=state.source_kind,
+            active_server_url=state.active_server_url,
+            session_id_override=session_id,
+            policy_type=policy_type,
+            base_url_override=state.active_server_url,
+        )
+
+    @app.get("/api/policy-statuses", response_model=PolicyTypeOptionsResponse)
+    async def api_policy_statuses() -> PolicyTypeOptionsResponse:
+        """Return canonical policy status options for inventory filtering."""
+        state = get_runtime_mode()
+        return build_policy_status_options_payload(source_kind=state.source_kind)
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(

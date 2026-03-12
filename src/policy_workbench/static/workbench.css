@@ -61,6 +61,41 @@
   text-overflow: ellipsis;
 }
 
+.runtime-mode-shell .input {
+  color: var(--col-text);
+}
+
+.runtime-mode-shell .input::placeholder {
+  color: var(--col-text-muted);
+  opacity: 1;
+}
+
+/* Keep runtime login fields readable regardless of browser autofill defaults. */
+.runtime-mode-shell #runtime-login-username,
+.runtime-mode-shell #runtime-login-password {
+  background: var(--col-surface-2);
+  border-color: var(--col-border-hi);
+  color: var(--col-text);
+}
+
+.runtime-mode-shell #runtime-login-username::placeholder,
+.runtime-mode-shell #runtime-login-password::placeholder {
+  color: color-mix(in srgb, var(--col-text) 70%, transparent);
+  opacity: 1;
+}
+
+.runtime-mode-shell .input:autofill,
+.runtime-mode-shell .input:-webkit-autofill,
+.runtime-mode-shell .input:-webkit-autofill:hover,
+.runtime-mode-shell .input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--col-text) !important;
+  caret-color: var(--col-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--col-surface-2) inset !important;
+  box-shadow: 0 0 0 1000px var(--col-surface-2) inset !important;
+  border: 1px solid var(--col-border-hi) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
 .panel {
   display: flex;
   flex-direction: column;
@@ -473,22 +508,25 @@
   border: 1px solid var(--col-border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--col-surface-2) 45%, var(--col-bg));
-  overflow: hidden;
+  overflow: visible;
+  margin-bottom: var(--sp-2);
+  padding: 2px;
 }
 
 .tree-summary-metrics {
   display: flex;
   gap: var(--sp-2);
-  padding: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) calc(var(--sp-2) + 1px);
 }
 
 .tree-summary-metric {
   flex: 1 1 0;
   min-width: 0;
+  min-height: 2.15rem;
   border: 1px solid var(--col-border);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--col-surface) 70%, var(--col-bg));
-  padding: 3px var(--sp-2);
+  padding: 6px var(--sp-2);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -501,6 +539,7 @@
   color: var(--col-text-muted);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -509,6 +548,7 @@
   font-size: var(--text-xs);
   font-weight: 700;
   color: var(--col-text);
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -1093,6 +1133,11 @@
   padding: var(--sp-1);
 }
 
+.tree-list {
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+}
+
 .tree-group {
   border: 1px solid var(--col-border);
   border-radius: var(--radius-sm);
@@ -1150,8 +1195,8 @@
 .tree-group__files {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: var(--sp-1);
+  gap: var(--sp-1);
+  padding: var(--sp-2);
   background: color-mix(in srgb, var(--col-surface-2) 50%, var(--col-bg));
 }
 
