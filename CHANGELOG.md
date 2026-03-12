@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.9...pipeworks-policy-workbench-v0.1.10) (2026-03-12)
+
+
+### Fixes
+
+* **auth:** enforce admin and superuser server-mode access ([#26](https://github.com/pipe-works/pipeworks-policy-workbench/issues/26)) ([16c0f5e](https://github.com/pipe-works/pipeworks-policy-workbench/commit/16c0f5e45b22375cc16baf0c07a4a80e3adafd3b))
+
 ## [0.1.9](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.8...pipeworks-policy-workbench-v0.1.9) (2026-03-11)
 
 
