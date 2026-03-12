@@ -309,9 +309,18 @@ def save_species_block_from_yaml(
     )
 
 
-def resolve_runtime_config(*, session_id_override: str | None = None) -> MudPolicyRuntimeConfig:
+def resolve_runtime_config(
+    *,
+    session_id_override: str | None = None,
+    base_url_override: str | None = None,
+) -> MudPolicyRuntimeConfig:
     """Resolve mud-server API runtime config from env and optional overrides."""
-    base_url = os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL).strip().rstrip("/")
+    base_candidate = (
+        base_url_override
+        if base_url_override is not None
+        else os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL)
+    )
+    base_url = (base_candidate or "").strip().rstrip("/")
     if not base_url:
         raise ValueError("Mud policy API base URL must not be empty.")
 

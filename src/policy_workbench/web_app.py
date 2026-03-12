@@ -15,6 +15,12 @@ from .policy_authoring import (
     resolve_runtime_config,
     save_policy_variant_from_raw_content,
 )
+from .runtime_mode import (
+    RuntimeModeUnavailableError,
+    get_runtime_mode,
+    require_server_api_url,
+    set_runtime_mode,
+)
 from .sync_apply import apply_sync_plan
 from .web_models import (
     HashStatusResponse,
@@ -28,6 +34,10 @@ from .web_models import (
     PolicySaveRequest,
     PolicySaveResponse,
     PolicyTreeResponse,
+    RuntimeAuthResponse,
+    RuntimeModeOptionResponse,
+    RuntimeModeRequest,
+    RuntimeModeResponse,
     SyncApplyRequest,
     SyncApplyResponse,
     SyncCompareResponse,
@@ -40,6 +50,7 @@ from .web_services import (
     build_policy_inventory_payload,
     build_policy_object_detail_payload,
     build_policy_publish_run_payload,
+    build_runtime_auth_payload,
     build_sync_compare_payload,
     build_sync_payload,
     build_sync_plan_for_apply,
@@ -66,6 +77,39 @@ def create_web_app(
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+    def _status_code_for_mud_api_error(detail: str) -> int:
+        """Map mud-server auth/permission failures to stable HTTP status codes."""
+        if (
+            "Policy API requires admin or superuser role." in detail
+            or "role is not admin/superuser" in detail
+        ):
+            return 403
+        if "Invalid or expired session" in detail or "Invalid session user" in detail:
+            return 401
+        return 400
+
+    def _build_runtime_mode_response() -> RuntimeModeResponse:
+        """Return runtime mode payload serialized to API response models."""
+        state = get_runtime_mode()
+        return RuntimeModeResponse(
+            mode_key=state.mode_key,
+            source_kind=state.source_kind,
+            active_server_url=state.active_server_url,
+            options=[
+                RuntimeModeOptionResponse(
+                    mode_key=option.mode_key,
+                    label=option.label,
+                    source_kind=option.source_kind,
+                    default_server_url=option.default_server_url,
+                    active_server_url=(
+                        state.active_server_url if option.mode_key == state.mode_key else None
+                    ),
+                    url_editable=option.url_editable,
+                )
+                for option in state.options
+            ],
+        )
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         """Render the single-page policy workbench shell."""
@@ -82,6 +126,34 @@ def create_web_app(
 
         return {"status": "ok"}
 
+    @app.get("/api/runtime-mode", response_model=RuntimeModeResponse)
+    async def api_runtime_mode() -> RuntimeModeResponse:
+        """Return active source mode and available workbench mode profiles."""
+        return _build_runtime_mode_response()
+
+    @app.post("/api/runtime-mode", response_model=RuntimeModeResponse)
+    async def api_runtime_mode_set(payload: RuntimeModeRequest) -> RuntimeModeResponse:
+        """Switch active source mode and optional mud-server URL override."""
+        try:
+            set_runtime_mode(mode_key=payload.mode_key, server_url=payload.server_url)
+            return _build_runtime_mode_response()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/runtime-auth", response_model=RuntimeAuthResponse)
+    async def api_runtime_auth(
+        session_id: str | None = Query(default=None),
+    ) -> RuntimeAuthResponse:
+        """Return explicit runtime auth/access status for server-backed operations."""
+        state = get_runtime_mode()
+        return build_runtime_auth_payload(
+            mode_key=state.mode_key,
+            source_kind=state.source_kind,
+            active_server_url=state.active_server_url,
+            session_id_override=session_id,
+            base_url_override=state.active_server_url,
+        )
+
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
         policy_type: str | None = Query(default=None),
@@ -92,14 +164,21 @@ def create_web_app(
         """Return API-first policy inventory list from mud-server canonical API."""
 
         try:
+            server_api_url = require_server_api_url()
             return build_policy_inventory_payload(
                 policy_type=policy_type,
                 namespace=namespace,
                 status=status,
                 session_id_override=session_id,
+                base_url_override=server_api_url,
             )
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except (ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policies/{policy_id}", response_model=PolicyObjectDetailResponse)
     async def api_policy_detail(
@@ -110,13 +189,20 @@ def create_web_app(
         """Return one policy object detail payload from mud-server canonical API."""
 
         try:
+            server_api_url = require_server_api_url()
             return build_policy_object_detail_payload(
                 policy_id=policy_id,
                 variant=variant,
                 session_id_override=session_id,
+                base_url_override=server_api_url,
             )
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except (ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policy-activations-live", response_model=PolicyActivationScopeResponse)
     async def api_policy_activations_live(
@@ -127,13 +213,20 @@ def create_web_app(
         """Return scoped activation mappings from mud-server canonical API."""
 
         try:
+            server_api_url = require_server_api_url()
             return build_policy_activation_scope_payload(
                 scope=scope,
                 effective=effective,
                 session_id_override=session_id,
+                base_url_override=server_api_url,
             )
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except (ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get(
         "/api/policy-publish-runs/{publish_run_id}",
@@ -146,12 +239,19 @@ def create_web_app(
         """Return one publish run payload from mud-server canonical publish API."""
 
         try:
+            server_api_url = require_server_api_url()
             return build_policy_publish_run_payload(
                 publish_run_id=publish_run_id,
                 session_id_override=session_id,
+                base_url_override=server_api_url,
             )
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except (ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/tree", response_model=PolicyTreeResponse)
     async def api_tree(
@@ -230,7 +330,11 @@ def create_web_app(
             variant=payload.variant,
         )
         try:
-            runtime_config = resolve_runtime_config(session_id_override=payload.session_id)
+            server_api_url = require_server_api_url()
+            runtime_config = resolve_runtime_config(
+                session_id_override=payload.session_id,
+                base_url_override=server_api_url,
+            )
             result = save_policy_variant_from_raw_content(
                 selector=selector,
                 raw_content=payload.raw_content,
@@ -251,8 +355,13 @@ def create_web_app(
                 activated=payload.activate,
                 activation_audit_event_id=result.activation_audit_event_id,
             )
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/validate", response_model=ValidationResponse)
     async def api_validate(

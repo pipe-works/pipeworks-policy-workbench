@@ -21,6 +21,7 @@ from policy_workbench.web_models import (
     PolicyObjectDetailResponse,
     PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
+    RuntimeAuthResponse,
 )
 
 
@@ -88,6 +89,88 @@ def test_index_and_health_endpoints_return_expected_payloads(tmp_path: Path) -> 
     health_response = client.get("/health")
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok"}
+
+
+def test_runtime_mode_endpoints_switch_between_offline_and_server_profiles(tmp_path: Path) -> None:
+    """Runtime mode endpoints should expose and update source profile state."""
+    client, _, _ = _build_client(tmp_path)
+
+    initial_response = client.get("/api/runtime-mode")
+    assert initial_response.status_code == 200
+    initial_payload = initial_response.json()
+    assert initial_payload["mode_key"] == "server_dev"
+    assert initial_payload["source_kind"] == "server_api"
+    assert initial_payload["active_server_url"] == "http://127.0.0.1:8000"
+    assert any(option["mode_key"] == "offline" for option in initial_payload["options"])
+
+    offline_response = client.post(
+        "/api/runtime-mode",
+        json={"mode_key": "offline"},
+    )
+    assert offline_response.status_code == 200
+    offline_payload = offline_response.json()
+    assert offline_payload["mode_key"] == "offline"
+    assert offline_payload["source_kind"] == "local_disk"
+    assert offline_payload["active_server_url"] is None
+
+    remote_response = client.post(
+        "/api/runtime-mode",
+        json={"mode_key": "server_dev", "server_url": "https://dev.example.test/"},
+    )
+    assert remote_response.status_code == 200
+    remote_payload = remote_response.json()
+    assert remote_payload["mode_key"] == "server_dev"
+    assert remote_payload["source_kind"] == "server_api"
+    assert remote_payload["active_server_url"] == "https://dev.example.test"
+
+    invalid_response = client.post(
+        "/api/runtime-mode",
+        json={"mode_key": "not-a-mode"},
+    )
+    assert invalid_response.status_code == 400
+    assert "Unknown runtime mode" in invalid_response.json()["detail"]
+
+    invalid_url_response = client.post(
+        "/api/runtime-mode",
+        json={"mode_key": "server_dev", "server_url": "mud-dev.example.test"},
+    )
+    assert invalid_url_response.status_code == 400
+    assert "absolute http(s)" in invalid_url_response.json()["detail"]
+
+
+def test_runtime_auth_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
+    """Runtime-auth endpoint should expose auth probe payload for current source mode."""
+
+    client, _, _ = _build_client(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _fake_runtime_auth_builder(**kwargs):
+        captured.update(kwargs)
+        return RuntimeAuthResponse(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://127.0.0.1:8000",
+            session_present=True,
+            access_granted=True,
+            status="authorized",
+            detail="Session is authorized for admin/superuser policy APIs.",
+        )
+
+    monkeypatch.setattr(web_app_module, "build_runtime_auth_payload", _fake_runtime_auth_builder)
+
+    response = client.get("/api/runtime-auth")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "authorized"
+    assert payload["access_granted"] is True
+    assert captured == {
+        "mode_key": "server_dev",
+        "source_kind": "server_api",
+        "active_server_url": "http://127.0.0.1:8000",
+        "session_id_override": None,
+        "base_url_override": "http://127.0.0.1:8000",
+    }
 
 
 def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
@@ -267,6 +350,7 @@ def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
         "namespace": None,
         "status": "draft",
         "session_id_override": "s1",
+        "base_url_override": "http://127.0.0.1:8000",
     }
 
     detail_response = client.get(
@@ -280,6 +364,7 @@ def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
         "policy_id": "species_block:image.blocks.species:goblin",
         "variant": "v1",
         "session_id_override": "s1",
+        "base_url_override": "http://127.0.0.1:8000",
     }
 
 
@@ -383,6 +468,60 @@ def test_api_first_proxy_endpoints_map_service_errors_to_http_400(
     assert "publish failure" in publish_response.json()["detail"]
 
 
+def test_api_first_proxy_endpoints_map_auth_failures_to_401_and_403(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Proxy endpoints should preserve mud-server auth semantics (401/403)."""
+    client, _, _ = _build_client(tmp_path)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_inventory_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("Mud API request failed: Policy API requires admin or superuser role.")
+        ),
+    )
+    forbidden_response = client.get("/api/policies")
+    assert forbidden_response.status_code == 403
+    assert "admin or superuser" in forbidden_response.json()["detail"]
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_inventory_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("Mud API request failed: Invalid or expired session")
+        ),
+    )
+    unauthenticated_response = client.get("/api/policies")
+    assert unauthenticated_response.status_code == 401
+    assert "Invalid or expired session" in unauthenticated_response.json()["detail"]
+
+
+def test_api_first_proxy_endpoints_return_503_when_mode_is_offline(
+    tmp_path: Path,
+) -> None:
+    """Mud-server backed proxy endpoints should fail closed in offline mode."""
+    client, _, _ = _build_client(tmp_path)
+    mode_response = client.post("/api/runtime-mode", json={"mode_key": "offline"})
+    assert mode_response.status_code == 200
+
+    inventory_response = client.get("/api/policies")
+    assert inventory_response.status_code == 503
+    assert "Offline mode active" in inventory_response.json()["detail"]
+
+    activation_response = client.get(
+        "/api/policy-activations-live",
+        params={"scope": "pipeworks_web"},
+    )
+    assert activation_response.status_code == 503
+    assert "Offline mode active" in activation_response.json()["detail"]
+
+    publish_response = client.get("/api/policy-publish-runs/1")
+    assert publish_response.status_code == 503
+    assert "Offline mode active" in publish_response.json()["detail"]
+
+
 def test_policy_save_endpoint_runs_phase2_api_only_flow(
     tmp_path: Path,
     monkeypatch,
@@ -393,7 +532,7 @@ def test_policy_save_endpoint_runs_phase2_api_only_flow(
     monkeypatch.setattr(
         web_app_module,
         "resolve_runtime_config",
-        lambda session_id_override=None: object(),
+        lambda session_id_override=None, base_url_override=None: object(),
     )
     monkeypatch.setattr(
         web_app_module,
@@ -443,7 +582,9 @@ def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
     monkeypatch.setattr(
         web_app_module,
         "resolve_runtime_config",
-        lambda session_id_override=None: (_ for _ in ()).throw(ValueError("missing session id")),
+        lambda session_id_override=None, base_url_override=None: (_ for _ in ()).throw(
+            ValueError("missing session id")
+        ),
     )
 
     response = client.post(
@@ -458,6 +599,26 @@ def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
     )
     assert response.status_code == 400
     assert "missing session id" in response.json()["detail"]
+
+
+def test_policy_save_endpoint_returns_503_when_mode_is_offline(tmp_path: Path) -> None:
+    """Policy save should fail closed when runtime mode is offline/local-disk."""
+    client, _, _ = _build_client(tmp_path)
+    mode_response = client.post("/api/runtime-mode", json={"mode_key": "offline"})
+    assert mode_response.status_code == 200
+
+    response = client.post(
+        "/api/policy-save",
+        json={
+            "policy_type": "species_block",
+            "namespace": "image.blocks.species",
+            "policy_key": "goblin",
+            "variant": "v1",
+            "raw_content": "text: |\n  Goblin body text.\n",
+        },
+    )
+    assert response.status_code == 503
+    assert "Offline mode active" in response.json()["detail"]
 
 
 def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:

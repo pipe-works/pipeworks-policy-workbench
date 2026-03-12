@@ -60,6 +60,13 @@ def test_resolve_mud_api_runtime_config_uses_env_and_override(monkeypatch) -> No
     )
     assert override_runtime.session_id == "session-override"
 
+    base_override_runtime = web_services._resolve_mud_api_runtime_config(
+        session_id_override=None,
+        base_url_override=" https://dev.mud.example:9443/ ",
+    )
+    assert base_override_runtime.base_url == "https://dev.mud.example:9443"
+    assert base_override_runtime.session_id == "session-from-env"
+
 
 def test_resolve_mud_api_runtime_config_rejects_missing_base_url_and_session(monkeypatch) -> None:
     """Runtime config resolver should fail fast when required inputs are missing."""
@@ -73,6 +80,105 @@ def test_resolve_mud_api_runtime_config_rejects_missing_base_url_and_session(mon
     monkeypatch.delenv("PW_POLICY_MUD_SESSION_ID", raising=False)
     with pytest.raises(ValueError, match="session id is required"):
         web_services._resolve_mud_api_runtime_config(session_id_override=None)
+
+
+def test_build_runtime_auth_payload_for_offline_mode() -> None:
+    """Offline mode should short-circuit runtime auth checks."""
+
+    payload = web_services.build_runtime_auth_payload(
+        mode_key="offline",
+        source_kind="local_disk",
+        active_server_url=None,
+        session_id_override=None,
+    )
+
+    assert payload.status == "offline"
+    assert payload.access_granted is False
+    assert payload.session_present is False
+
+
+def test_build_runtime_auth_payload_reports_authorized_session(monkeypatch) -> None:
+    """Runtime auth probe should mark session authorized on successful policy API call."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id=session_id_override or "s1",
+        ),
+    )
+    monkeypatch.setattr(web_services, "_fetch_mud_api_json", lambda **_kwargs: {"items": []})
+
+    payload = web_services.build_runtime_auth_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override="s1",
+    )
+
+    assert payload.status == "authorized"
+    assert payload.access_granted is True
+    assert payload.session_present is True
+    assert payload.active_server_url == "http://mud.local:8000"
+
+
+def test_build_runtime_auth_payload_reports_missing_session(monkeypatch) -> None:
+    """Runtime auth probe should map missing session to stable missing_session state."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: (_ for _ in ()).throw(
+            ValueError("Mud API session id is required (PW_POLICY_MUD_SESSION_ID).")
+        ),
+    )
+
+    payload = web_services.build_runtime_auth_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override=None,
+    )
+
+    assert payload.status == "missing_session"
+    assert payload.access_granted is False
+    assert payload.session_present is False
+
+
+def test_build_runtime_auth_payload_reports_forbidden_role(monkeypatch) -> None:
+    """Runtime auth probe should classify non-admin sessions as forbidden."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id="s1",
+        ),
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError(
+                "Mud API request failed (GET http://mud.local:8000/api/policies): "
+                "Policy API requires admin or superuser role."
+            )
+        ),
+    )
+
+    payload = web_services.build_runtime_auth_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override="s1",
+    )
+
+    assert payload.status == "forbidden"
+    assert payload.access_granted is False
+    assert payload.session_present is True
+    assert "role is not admin/superuser" in payload.detail
 
 
 def test_fetch_mud_api_json_builds_url_and_returns_object_payload(monkeypatch) -> None:
@@ -184,7 +290,7 @@ def test_build_policy_inventory_payload_filters_and_serializes_items(monkeypatch
     monkeypatch.setattr(
         web_services,
         "_resolve_mud_api_runtime_config",
-        lambda session_id_override=None: web_services._MudApiRuntimeConfig(
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
             base_url="http://mud.local:8000",
             session_id=(session_id_override or "s1"),
         ),
@@ -239,13 +345,42 @@ def test_build_policy_inventory_payload_filters_and_serializes_items(monkeypatch
     }
 
 
+def test_build_inventory_uses_base_url_override_for_runtime_resolution(monkeypatch) -> None:
+    """Inventory builder should pass optional API base URL override to runtime resolver."""
+    captured: dict[str, object] = {}
+
+    def _fake_runtime(*, session_id_override=None, base_url_override=None):
+        captured["session_id_override"] = session_id_override
+        captured["base_url_override"] = base_url_override
+        return web_services._MudApiRuntimeConfig(
+            base_url="https://dev.mud.example:9443",
+            session_id="s1",
+        )
+
+    monkeypatch.setattr(web_services, "_resolve_mud_api_runtime_config", _fake_runtime)
+    monkeypatch.setattr(web_services, "_fetch_mud_api_json", lambda **_kwargs: {"items": []})
+
+    payload = web_services.build_policy_inventory_payload(
+        policy_type=None,
+        namespace=None,
+        status=None,
+        session_id_override="session-1",
+        base_url_override="https://dev.mud.example:9443",
+    )
+    assert payload.item_count == 0
+    assert captured == {
+        "session_id_override": "session-1",
+        "base_url_override": "https://dev.mud.example:9443",
+    }
+
+
 def test_build_policy_inventory_payload_rejects_invalid_item_shapes(monkeypatch) -> None:
     """Inventory builder should reject malformed mud-server payload contracts."""
 
     monkeypatch.setattr(
         web_services,
         "_resolve_mud_api_runtime_config",
-        lambda session_id_override=None: web_services._MudApiRuntimeConfig(
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
             base_url="http://mud.local:8000",
             session_id="s1",
         ),
@@ -277,7 +412,7 @@ def test_build_policy_detail_activation_and_publish_payloads(monkeypatch) -> Non
     monkeypatch.setattr(
         web_services,
         "_resolve_mud_api_runtime_config",
-        lambda session_id_override=None: web_services._MudApiRuntimeConfig(
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
             base_url="http://mud.local:8000",
             session_id=(session_id_override or "s1"),
         ),

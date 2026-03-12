@@ -70,6 +70,7 @@ Phase 2 web authoring behavior:
 - configure mud-server connectivity with:
   - `PW_POLICY_MUD_API_BASE_URL` (default: `http://127.0.0.1:8000`)
   - `PW_POLICY_MUD_SESSION_ID` (required unless provided in request payload)
+  - session must belong to an `admin` or `superuser` account for server-backed policy operations
 
 ## Current Layout
 
