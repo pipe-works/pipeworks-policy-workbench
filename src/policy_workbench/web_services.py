@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -33,6 +34,7 @@ from .web_models import (
     PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
     PolicyTreeResponse,
+    PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginResponse,
     SyncActionResponse,
@@ -50,9 +52,23 @@ _CANONICAL_HASH_URL_ENV = "PW_POLICY_HASH_SNAPSHOT_URL"
 _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
 _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
 _MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
+_LOCAL_POLICY_TYPES_FILE_ENV = "PW_POLICY_LOCAL_POLICY_TYPES_FILE"
 _POLICY_API_ROLE_REQUIRED_DETAIL = "Policy API requires admin or superuser role."
 _POLICY_API_AUTH_PROBE_POLICY_TYPE = "__ppw_auth_probe__"
 _POLICY_ALLOWED_ROLES = {"admin", "superuser"}
+_FALLBACK_POLICY_TYPES = (
+    "species_block",
+    "descriptor_layer",
+    "registry",
+    "prompt",
+    "tone_profile",
+)
+_FALLBACK_POLICY_STATUSES = (
+    "draft",
+    "candidate",
+    "active",
+    "archived",
+)
 
 try:
     import pipeworks_ipc.hashing as ipc_hashing
@@ -270,6 +286,145 @@ def build_runtime_login_payload(
         session_id=session_id.strip(),
         role=normalized_role,
         detail="Authenticated as admin/superuser.",
+    )
+
+
+def build_policy_type_options_payload(
+    *,
+    source_kind: str,
+    active_server_url: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None = None,
+) -> PolicyTypeOptionsResponse:
+    """Return canonical policy-type options sourced from API or local files.
+
+    Resolution order:
+    1. mud-server API inventory-derived policy types when server mode has a usable session
+    2. local mud-server canonical source file in this workspace
+    3. stable built-in fallback list
+    """
+
+    local_policy_types, local_source, local_detail = _load_local_policy_types_from_disk()
+    if source_kind != "server_api":
+        return PolicyTypeOptionsResponse(
+            items=local_policy_types,
+            source=local_source,
+            detail=local_detail,
+        )
+
+    try:
+        runtime = _resolve_mud_api_runtime_config(
+            session_id_override=session_id_override,
+            base_url_override=(
+                base_url_override if base_url_override is not None else active_server_url
+            ),
+        )
+        payload = _fetch_mud_api_json(
+            runtime=runtime,
+            method="GET",
+            path="/api/policies",
+            query_params={},
+        )
+        api_policy_types = _extract_policy_types_from_inventory_payload(payload)
+    except ValueError as exc:
+        return PolicyTypeOptionsResponse(
+            items=local_policy_types,
+            source=local_source,
+            detail=f"API policy-type discovery unavailable; using local canonical source. {exc}",
+        )
+
+    merged_policy_types = _merge_policy_type_lists(
+        primary_types=api_policy_types,
+        fallback_types=local_policy_types,
+    )
+    source = "mud_server_api" if merged_policy_types == api_policy_types else "mud_server_api+local"
+    detail = (
+        "Policy types resolved from mud-server API inventory."
+        if source == "mud_server_api"
+        else "Policy types resolved from mud-server API and local canonical source."
+    )
+    return PolicyTypeOptionsResponse(
+        items=merged_policy_types,
+        source=source,
+        detail=detail,
+    )
+
+
+def build_policy_namespace_options_payload(
+    *,
+    source_root: Path,
+    source_kind: str,
+    active_server_url: str | None,
+    session_id_override: str | None,
+    policy_type: str | None,
+    base_url_override: str | None = None,
+) -> PolicyTypeOptionsResponse:
+    """Return canonical policy namespace options filtered by optional type."""
+
+    normalized_policy_type = str(policy_type or "").strip() or None
+    local_namespaces = _load_local_namespaces_from_disk(
+        source_root=source_root,
+        policy_type=normalized_policy_type,
+    )
+    if source_kind != "server_api":
+        return PolicyTypeOptionsResponse(
+            items=local_namespaces,
+            source="local_disk",
+            detail="Loaded canonical namespaces from local policy files.",
+        )
+
+    try:
+        runtime = _resolve_mud_api_runtime_config(
+            session_id_override=session_id_override,
+            base_url_override=(
+                base_url_override if base_url_override is not None else active_server_url
+            ),
+        )
+        query_params = {}
+        if normalized_policy_type:
+            query_params["policy_type"] = normalized_policy_type
+        payload = _fetch_mud_api_json(
+            runtime=runtime,
+            method="GET",
+            path="/api/policies",
+            query_params=query_params,
+        )
+        api_namespaces = _extract_namespaces_from_inventory_payload(payload)
+    except ValueError as exc:
+        return PolicyTypeOptionsResponse(
+            items=local_namespaces,
+            source="local_disk",
+            detail=f"API namespace discovery unavailable; using local canonical source. {exc}",
+        )
+
+    merged_namespaces = _merge_policy_type_lists(
+        primary_types=api_namespaces,
+        fallback_types=local_namespaces,
+    )
+    return PolicyTypeOptionsResponse(
+        items=merged_namespaces,
+        source="mud_server_api",
+        detail="Namespaces resolved from mud-server API inventory (with local canonical fallback).",
+    )
+
+
+def build_policy_status_options_payload(
+    *,
+    source_kind: str,
+) -> PolicyTypeOptionsResponse:
+    """Return canonical policy status options from local canonical contract."""
+
+    statuses, source, detail = _load_local_policy_statuses_from_disk()
+    if source_kind == "server_api":
+        return PolicyTypeOptionsResponse(
+            items=statuses,
+            source=source,
+            detail=detail or "Loaded canonical statuses from local mud-server contract.",
+        )
+    return PolicyTypeOptionsResponse(
+        items=statuses,
+        source=source,
+        detail=detail,
     )
 
 
@@ -711,6 +866,194 @@ def _normalize_base_url(value: str | None) -> str:
     if not base_url:
         return ""
     return base_url
+
+
+def _extract_policy_types_from_inventory_payload(payload: dict[str, object]) -> list[str]:
+    """Extract stable policy-type list from ``GET /api/policies`` payload."""
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("Mud API /api/policies response must include an 'items' list.")
+
+    policy_types: list[str] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        policy_type = str(item.get("policy_type", "")).strip()
+        if policy_type:
+            policy_types.append(policy_type)
+    return _dedupe_preserve_order(policy_types)
+
+
+def _extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> list[str]:
+    """Extract stable namespace list from ``GET /api/policies`` payload."""
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("Mud API /api/policies response must include an 'items' list.")
+
+    namespaces: list[str] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        namespace = str(item.get("namespace", "")).strip()
+        if namespace:
+            namespaces.append(namespace)
+    return _dedupe_preserve_order(namespaces)
+
+
+def _merge_policy_type_lists(
+    *,
+    primary_types: list[str],
+    fallback_types: list[str],
+) -> list[str]:
+    """Merge type lists, preserving primary order and appending missing fallback values."""
+    merged: list[str] = []
+    seen: set[str] = set()
+    for candidate in [*primary_types, *fallback_types]:
+        normalized = str(candidate or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        merged.append(normalized)
+    return merged
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    """Normalize duplicate-prone lists while preserving first-seen ordering."""
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return unique
+
+
+def _load_local_policy_types_from_disk() -> tuple[list[str], str, str | None]:
+    """Load canonical policy types from local mud-server source file when available."""
+    source_path = _resolve_local_policy_types_source_path()
+    if source_path is None:
+        return (
+            list(_FALLBACK_POLICY_TYPES),
+            "fallback",
+            "Local mud-server canonical policy type source file was not found.",
+        )
+
+    values = _load_local_constant_set_values(
+        source_path=source_path,
+        constant_name="_SUPPORTED_POLICY_TYPES",
+    )
+    if values is None:
+        return (
+            list(_FALLBACK_POLICY_TYPES),
+            "fallback",
+            "Local policy type source file did not expose _SUPPORTED_POLICY_TYPES.",
+        )
+
+    parsed_policy_types = _dedupe_preserve_order(values)
+    if not parsed_policy_types:
+        return (
+            list(_FALLBACK_POLICY_TYPES),
+            "fallback",
+            "Local policy type source file did not provide usable policy types.",
+        )
+    return (
+        parsed_policy_types,
+        "local_disk",
+        f"Loaded canonical policy types from {source_path}.",
+    )
+
+
+def _load_local_policy_statuses_from_disk() -> tuple[list[str], str, str | None]:
+    """Load canonical policy statuses from local mud-server source file."""
+    source_path = _resolve_local_policy_types_source_path()
+    if source_path is None:
+        return (
+            list(_FALLBACK_POLICY_STATUSES),
+            "fallback",
+            "Local mud-server canonical policy status source file was not found.",
+        )
+
+    values = _load_local_constant_set_values(
+        source_path=source_path,
+        constant_name="_SUPPORTED_STATUSES",
+    )
+    if values is None:
+        return (
+            list(_FALLBACK_POLICY_STATUSES),
+            "fallback",
+            "Local policy status source file did not expose _SUPPORTED_STATUSES.",
+        )
+
+    parsed_statuses = _dedupe_preserve_order(values)
+    if not parsed_statuses:
+        return (
+            list(_FALLBACK_POLICY_STATUSES),
+            "fallback",
+            "Local policy status source file did not provide usable statuses.",
+        )
+    return (
+        parsed_statuses,
+        "local_disk",
+        f"Loaded canonical policy statuses from {source_path}.",
+    )
+
+
+def _resolve_local_policy_types_source_path() -> Path | None:
+    """Resolve local canonical policy-type source file path."""
+    override = (os.getenv(_LOCAL_POLICY_TYPES_FILE_ENV, "") or "").strip()
+    if override:
+        return Path(override).expanduser()
+
+    workspace_root = Path(__file__).resolve().parents[3]
+    return (
+        workspace_root
+        / "pipeworks_mud_server"
+        / "src"
+        / "mud_server"
+        / "services"
+        / "policy_service.py"
+    )
+
+
+def _load_local_namespaces_from_disk(*, source_root: Path, policy_type: str | None) -> list[str]:
+    """Derive canonical namespace options from local authorable policy files."""
+    if not source_root.exists() or not source_root.is_dir():
+        return []
+
+    namespaces: list[str] = []
+    for path in sorted(source_root.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            relative_path = path.relative_to(source_root).as_posix()
+        except ValueError:
+            continue
+        if not _is_supported_editor_file(relative_path):
+            continue
+        selector = selector_from_relative_path(relative_path)
+        if selector is None:
+            continue
+        if policy_type and selector.policy_type != policy_type:
+            continue
+        namespaces.append(selector.namespace)
+    return _dedupe_preserve_order(namespaces)
+
+
+def _load_local_constant_set_values(*, source_path: Path, constant_name: str) -> list[str] | None:
+    """Load one module-level set constant list from a Python source file."""
+    if not source_path.exists():
+        return None
+    try:
+        text = source_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    pattern = rf"{re.escape(constant_name)}\s*=\s*{{(?P<body>[^}}]*)}}"
+    match = re.search(pattern, text, flags=re.DOTALL)
+    if match is None:
+        return None
+    return re.findall(r"['\"]([^'\"]+)['\"]", match.group("body"))
 
 
 def _fetch_mud_api_json(

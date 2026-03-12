@@ -115,6 +115,14 @@ class RuntimeLoginResponse(BaseModel):
     detail: str
 
 
+class PolicyTypeOptionsResponse(BaseModel):
+    """Canonical policy-type options for inventory filtering."""
+
+    items: list[str]
+    source: str
+    detail: str | None = None
+
+
 class PolicySaveRequest(BaseModel):
     """Request payload for Phase 2 API-only policy save operations."""
 

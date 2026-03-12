@@ -257,6 +257,223 @@ def test_build_runtime_login_payload_rejects_offline_and_missing_credentials() -
         )
 
 
+def test_build_policy_type_options_payload_uses_local_source_in_offline_mode(monkeypatch) -> None:
+    """Offline mode should return locally-resolved canonical policy types."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_policy_types_from_disk",
+        lambda: (["species_block", "prompt"], "local_disk", "loaded"),
+    )
+
+    payload = web_services.build_policy_type_options_payload(
+        source_kind="local_disk",
+        active_server_url=None,
+        session_id_override=None,
+    )
+    assert payload.items == ["species_block", "prompt"]
+    assert payload.source == "local_disk"
+    assert payload.detail == "loaded"
+
+
+def test_build_policy_type_options_payload_merges_api_and_local_sources(monkeypatch) -> None:
+    """Server mode should prefer API-discovered policy types and append local missing values."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_policy_types_from_disk",
+        lambda: (["species_block", "registry"], "local_disk", "loaded"),
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id="session-1",
+        ),
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json",
+        lambda **_kwargs: {
+            "items": [
+                {"policy_type": "prompt"},
+                {"policy_type": "species_block"},
+                {"policy_type": "prompt"},
+            ]
+        },
+    )
+
+    payload = web_services.build_policy_type_options_payload(
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override="session-1",
+    )
+    assert payload.items == ["prompt", "species_block", "registry"]
+    assert payload.source == "mud_server_api+local"
+
+
+def test_build_policy_type_options_payload_falls_back_to_local_when_api_unavailable(
+    monkeypatch,
+) -> None:
+    """Server mode should fail closed to local canonical source when API discovery fails."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_policy_types_from_disk",
+        lambda: (["species_block", "prompt"], "local_disk", "loaded"),
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: (_ for _ in ()).throw(
+            ValueError("Mud API session id is required (PW_POLICY_MUD_SESSION_ID).")
+        ),
+    )
+
+    payload = web_services.build_policy_type_options_payload(
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override=None,
+    )
+    assert payload.items == ["species_block", "prompt"]
+    assert payload.source == "local_disk"
+    assert "using local canonical source" in (payload.detail or "")
+
+
+def test_build_policy_namespace_options_payload_uses_local_in_offline_mode(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Offline mode should use local namespace discovery."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_namespaces_from_disk",
+        lambda source_root, policy_type: (
+            ["image.blocks.species"] if policy_type == "species_block" else []
+        ),
+    )
+    payload = web_services.build_policy_namespace_options_payload(
+        source_root=tmp_path,
+        source_kind="local_disk",
+        active_server_url=None,
+        session_id_override=None,
+        policy_type="species_block",
+    )
+    assert payload.items == ["image.blocks.species"]
+    assert payload.source == "local_disk"
+
+
+def test_build_policy_namespace_options_payload_merges_api_and_local(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Server namespace discovery should merge API-derived and local canonical values."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_namespaces_from_disk",
+        lambda source_root, policy_type: ["image.blocks.species", "image.registries"],
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id="session-1",
+        ),
+    )
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json",
+        lambda **_kwargs: {
+            "items": [
+                {"namespace": "image.blocks.species"},
+                {"namespace": "translation.prompts.ic"},
+            ]
+        },
+    )
+    payload = web_services.build_policy_namespace_options_payload(
+        source_root=tmp_path,
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        session_id_override="session-1",
+        policy_type=None,
+    )
+    assert payload.items == [
+        "image.blocks.species",
+        "translation.prompts.ic",
+        "image.registries",
+    ]
+    assert payload.source == "mud_server_api"
+
+
+def test_build_policy_status_options_payload_uses_local_canonical_source(monkeypatch) -> None:
+    """Status options should resolve from local canonical source in all modes."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_load_local_policy_statuses_from_disk",
+        lambda: (["draft", "candidate", "active", "archived"], "local_disk", "loaded"),
+    )
+    offline_payload = web_services.build_policy_status_options_payload(source_kind="local_disk")
+    assert offline_payload.items == ["draft", "candidate", "active", "archived"]
+    assert offline_payload.source == "local_disk"
+
+    server_payload = web_services.build_policy_status_options_payload(source_kind="server_api")
+    assert server_payload.items == ["draft", "candidate", "active", "archived"]
+    assert server_payload.source == "local_disk"
+
+
+def test_load_local_policy_types_from_disk_parses_mud_service_constant(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Local canonical loader should parse supported policy types from mud-server source."""
+
+    source_file = tmp_path / "policy_service.py"
+    source_file.write_text(
+        (
+            "_SUPPORTED_POLICY_TYPES = {\n"
+            "    'image_block',\n"
+            "    'species_block',\n"
+            "    'registry',\n"
+            "    'prompt',\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PW_POLICY_LOCAL_POLICY_TYPES_FILE", str(source_file))
+
+    items, source, detail = web_services._load_local_policy_types_from_disk()
+    assert items == ["image_block", "species_block", "registry", "prompt"]
+    assert source == "local_disk"
+    assert "Loaded canonical policy types" in str(detail)
+
+
+def test_load_local_policy_statuses_from_disk_parses_mud_service_constant(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """Local canonical loader should parse supported policy statuses from mud-server source."""
+
+    source_file = tmp_path / "policy_service.py"
+    source_file.write_text(
+        (
+            "_SUPPORTED_STATUSES = {\n"
+            "    'draft',\n"
+            "    'candidate',\n"
+            "    'active',\n"
+            "    'archived',\n"
+            "}\n"
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PW_POLICY_LOCAL_POLICY_TYPES_FILE", str(source_file))
+
+    items, source, detail = web_services._load_local_policy_statuses_from_disk()
+    assert items == ["draft", "candidate", "active", "archived"]
+    assert source == "local_disk"
+    assert "Loaded canonical policy statuses" in str(detail)
+
+
 def test_build_runtime_login_payload_rejects_empty_base_url_and_invalid_login_payload(
     monkeypatch,
 ) -> None:
@@ -309,6 +526,20 @@ def test_normalize_base_url_trims_and_handles_blank_values() -> None:
     )
     assert web_services._normalize_base_url("  ") == ""
     assert web_services._normalize_base_url(None) == ""
+
+
+def test_extract_policy_types_from_inventory_payload_rejects_missing_items() -> None:
+    """Policy-type extraction should reject inventory payloads without an items list."""
+
+    with pytest.raises(ValueError, match="must include an 'items' list"):
+        web_services._extract_policy_types_from_inventory_payload({"not_items": []})
+
+
+def test_extract_namespaces_from_inventory_payload_rejects_missing_items() -> None:
+    """Namespace extraction should reject inventory payloads without an items list."""
+
+    with pytest.raises(ValueError, match="must include an 'items' list"):
+        web_services._extract_namespaces_from_inventory_payload({"not_items": []})
 
 
 def test_fetch_mud_api_json_builds_url_and_returns_object_payload(monkeypatch) -> None:

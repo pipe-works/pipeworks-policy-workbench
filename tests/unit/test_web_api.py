@@ -21,6 +21,7 @@ from policy_workbench.web_models import (
     PolicyObjectDetailResponse,
     PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
+    PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginResponse,
 )
@@ -241,6 +242,101 @@ def test_runtime_login_endpoint_maps_offline_error_to_503(tmp_path: Path, monkey
     )
     assert response.status_code == 503
     assert "Offline mode active" in response.json()["detail"]
+
+
+def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
+    """Policy-types endpoint should proxy canonical options helper payload."""
+
+    client, _, _ = _build_client(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _fake_policy_types_builder(**kwargs):
+        captured.update(kwargs)
+        return PolicyTypeOptionsResponse(
+            items=["species_block", "registry", "prompt"],
+            source="local_disk",
+            detail="Loaded canonical policy types from local source.",
+        )
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_type_options_payload",
+        _fake_policy_types_builder,
+    )
+
+    response = client.get("/api/policy-types", params={"session_id": "s1"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"] == ["species_block", "registry", "prompt"]
+    assert payload["source"] == "local_disk"
+    assert captured == {
+        "source_kind": "local_disk",
+        "active_server_url": None,
+        "session_id_override": "s1",
+        "base_url_override": None,
+    }
+
+
+def test_policy_namespaces_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
+    """Policy-namespaces endpoint should proxy namespace option helper payload."""
+
+    client, source_root, _ = _build_client(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _fake_policy_namespaces_builder(**kwargs):
+        captured.update(kwargs)
+        return PolicyTypeOptionsResponse(
+            items=["image.blocks.species", "image.registries"],
+            source="local_disk",
+            detail="Loaded canonical namespaces from local policy files.",
+        )
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_namespace_options_payload",
+        _fake_policy_namespaces_builder,
+    )
+
+    response = client.get(
+        "/api/policy-namespaces",
+        params={"policy_type": "species_block", "session_id": "s1"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"] == ["image.blocks.species", "image.registries"]
+    assert captured["source_root"] == source_root
+    assert captured["source_kind"] == "local_disk"
+    assert captured["active_server_url"] is None
+    assert captured["session_id_override"] == "s1"
+    assert captured["policy_type"] == "species_block"
+    assert captured["base_url_override"] is None
+
+
+def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
+    """Policy-statuses endpoint should proxy canonical status helper payload."""
+
+    client, _, _ = _build_client(tmp_path)
+    captured: dict[str, object] = {}
+
+    def _fake_policy_statuses_builder(**kwargs):
+        captured.update(kwargs)
+        return PolicyTypeOptionsResponse(
+            items=["draft", "candidate", "active", "archived"],
+            source="local_disk",
+            detail="Loaded canonical policy statuses from local source.",
+        )
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_status_options_payload",
+        _fake_policy_statuses_builder,
+    )
+
+    response = client.get("/api/policy-statuses")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"] == ["draft", "candidate", "active", "archived"]
+    assert captured == {"source_kind": "local_disk"}
 
 
 def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:

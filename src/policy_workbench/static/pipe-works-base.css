@@ -670,13 +670,14 @@ td {
 
 .badge--err   { background: var(--col-err);       color: #fff; }
 .badge--warn  { background: var(--col-warn);      color: #111; }
-.badge--info  { background: var(--col-info);       color: #fff; }
+.badge--info  { background: var(--col-info);       color: #111; }
 .badge--muted { background: var(--col-surface-2); color: var(--col-text-muted); }
 .badge--active { background: var(--col-accent);   color: #111; }
 
 /* Light theme badge adjustments */
 [data-theme="light"] .badge       { color: #fff; }
 [data-theme="light"] .badge--warn { color: #fff; }
+[data-theme="light"] .badge--info { color: #fff; }
 [data-theme="light"] .badge--active {
   background: #8b5e0a;
   color: #fff;
