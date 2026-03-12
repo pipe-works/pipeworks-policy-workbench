@@ -82,19 +82,20 @@ def test_resolve_mud_api_runtime_config_rejects_missing_base_url_and_session(mon
         web_services._resolve_mud_api_runtime_config(session_id_override=None)
 
 
-def test_build_runtime_auth_payload_for_offline_mode() -> None:
-    """Offline mode should short-circuit runtime auth checks."""
+def test_build_runtime_auth_payload_rejects_non_server_source_kind() -> None:
+    """Runtime auth payload should fail closed for non-server source kinds."""
 
     payload = web_services.build_runtime_auth_payload(
-        mode_key="offline",
-        source_kind="local_disk",
+        mode_key="server_dev",
+        source_kind="unsupported_source",
         active_server_url=None,
         session_id_override=None,
     )
 
-    assert payload.status == "offline"
+    assert payload.status == "error"
     assert payload.access_granted is False
     assert payload.session_present is False
+    assert payload.detail == "Runtime mode must be server_api."
 
 
 def test_build_runtime_auth_payload_reports_authorized_session(monkeypatch) -> None:
@@ -226,13 +227,13 @@ def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> 
     assert "not admin/superuser" in forbidden_payload.detail
 
 
-def test_build_runtime_login_payload_rejects_offline_and_missing_credentials() -> None:
-    """Runtime login helper should reject offline mode and blank credentials."""
+def test_build_runtime_login_payload_rejects_non_server_and_missing_credentials() -> None:
+    """Runtime login helper should reject non-server source kinds and blank credentials."""
 
-    with pytest.raises(ValueError, match="Offline mode active"):
+    with pytest.raises(ValueError, match="Runtime mode must be server_api"):
         web_services.build_runtime_login_payload(
-            mode_key="offline",
-            source_kind="local_disk",
+            mode_key="server_dev",
+            source_kind="unsupported_source",
             active_server_url=None,
             username="admin",
             password="secret",
@@ -257,8 +258,10 @@ def test_build_runtime_login_payload_rejects_offline_and_missing_credentials() -
         )
 
 
-def test_build_policy_type_options_payload_uses_local_source_in_offline_mode(monkeypatch) -> None:
-    """Offline mode should return locally-resolved canonical policy types."""
+def test_build_policy_type_options_payload_falls_back_to_local_without_session(
+    monkeypatch,
+) -> None:
+    """Policy type options should fall back to local canonical types without session."""
 
     monkeypatch.setattr(
         web_services,
@@ -267,13 +270,13 @@ def test_build_policy_type_options_payload_uses_local_source_in_offline_mode(mon
     )
 
     payload = web_services.build_policy_type_options_payload(
-        source_kind="local_disk",
-        active_server_url=None,
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
         session_id_override=None,
     )
     assert payload.items == ["species_block", "prompt"]
     assert payload.source == "local_disk"
-    assert payload.detail == "loaded"
+    assert "using local canonical source" in str(payload.detail)
 
 
 def test_build_policy_type_options_payload_merges_api_and_local_sources(monkeypatch) -> None:
@@ -373,10 +376,10 @@ def test_build_policy_type_options_payload_falls_back_to_local_when_api_unavaila
     assert "using local canonical source" in (payload.detail or "")
 
 
-def test_build_policy_namespace_options_payload_uses_local_in_offline_mode(
+def test_build_policy_namespace_options_payload_falls_back_to_local_when_api_unavailable(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Offline mode should use local namespace discovery."""
+    """Namespace options should use local discovery when API is unavailable."""
 
     monkeypatch.setattr(
         web_services,
@@ -385,10 +388,17 @@ def test_build_policy_namespace_options_payload_uses_local_in_offline_mode(
             ["image.blocks.species"] if policy_type == "species_block" else []
         ),
     )
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: (_ for _ in ()).throw(
+            ValueError("missing session")
+        ),
+    )
     payload = web_services.build_policy_namespace_options_payload(
         source_root=tmp_path,
-        source_kind="local_disk",
-        active_server_url=None,
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
         session_id_override=None,
         policy_type="species_block",
     )
@@ -508,17 +518,13 @@ def test_build_policy_namespace_options_payload_falls_back_on_api_error(
 
 
 def test_build_policy_status_options_payload_uses_local_canonical_source(monkeypatch) -> None:
-    """Status options should resolve from local canonical source in all modes."""
+    """Status options should resolve from local canonical source."""
 
     monkeypatch.setattr(
         web_services,
         "_load_local_policy_statuses_from_disk",
         lambda: (["draft", "candidate", "active", "archived"], "local_disk", "loaded"),
     )
-    offline_payload = web_services.build_policy_status_options_payload(source_kind="local_disk")
-    assert offline_payload.items == ["draft", "candidate", "active", "archived"]
-    assert offline_payload.source == "local_disk"
-
     server_payload = web_services.build_policy_status_options_payload(source_kind="server_api")
     assert server_payload.items == ["draft", "candidate", "active", "archived"]
     assert server_payload.source == "local_disk"

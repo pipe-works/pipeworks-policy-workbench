@@ -103,27 +103,20 @@ def test_index_and_health_endpoints_return_expected_payloads(tmp_path: Path) -> 
     assert health_response.json() == {"status": "ok"}
 
 
-def test_runtime_mode_endpoints_switch_between_offline_and_server_profiles(tmp_path: Path) -> None:
-    """Runtime mode endpoints should expose and update source profile state."""
+def test_runtime_mode_endpoints_switch_between_server_profiles(tmp_path: Path) -> None:
+    """Runtime mode endpoints should expose and update server profile state."""
     client, _, _ = _build_client(tmp_path)
 
     initial_response = client.get("/api/runtime-mode")
     assert initial_response.status_code == 200
     initial_payload = initial_response.json()
-    assert initial_payload["mode_key"] == "offline"
-    assert initial_payload["source_kind"] == "local_disk"
-    assert initial_payload["active_server_url"] is None
-    assert any(option["mode_key"] == "offline" for option in initial_payload["options"])
-
-    offline_response = client.post(
-        "/api/runtime-mode",
-        json={"mode_key": "offline"},
-    )
-    assert offline_response.status_code == 200
-    offline_payload = offline_response.json()
-    assert offline_payload["mode_key"] == "offline"
-    assert offline_payload["source_kind"] == "local_disk"
-    assert offline_payload["active_server_url"] is None
+    assert initial_payload["mode_key"] == "server_dev"
+    assert initial_payload["source_kind"] == "server_api"
+    assert initial_payload["active_server_url"] == "http://127.0.0.1:8000"
+    assert {option["mode_key"] for option in initial_payload["options"]} == {
+        "server_dev",
+        "server_prod",
+    }
 
     remote_response = client.post(
         "/api/runtime-mode",
@@ -224,24 +217,22 @@ def test_runtime_login_endpoint_returns_service_payload(tmp_path: Path, monkeypa
     }
 
 
-def test_runtime_login_endpoint_maps_offline_error_to_503(tmp_path: Path, monkeypatch) -> None:
-    """Runtime-login endpoint should return 503 when offline mode blocks login."""
+def test_runtime_login_endpoint_maps_mode_error_to_400(tmp_path: Path, monkeypatch) -> None:
+    """Runtime-login endpoint should map mode/config errors to HTTP 400."""
 
     client, _, _ = _build_client(tmp_path)
     monkeypatch.setattr(
         web_app_module,
         "build_runtime_login_payload",
-        lambda **_kwargs: (_ for _ in ()).throw(
-            ValueError("Offline mode active. Switch to a mud-server profile before logging in.")
-        ),
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("Runtime mode must be server_api.")),
     )
 
     response = client.post(
         "/api/runtime-login",
         json={"username": "admin-user", "password": "secret"},
     )
-    assert response.status_code == 503
-    assert "Offline mode active" in response.json()["detail"]
+    assert response.status_code == 400
+    assert "Runtime mode must be server_api." in response.json()["detail"]
 
 
 def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
@@ -270,10 +261,10 @@ def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypat
     assert payload["items"] == ["species_block", "registry", "prompt"]
     assert payload["source"] == "local_disk"
     assert captured == {
-        "source_kind": "local_disk",
-        "active_server_url": None,
+        "source_kind": "server_api",
+        "active_server_url": "http://127.0.0.1:8000",
         "session_id_override": "s1",
-        "base_url_override": None,
+        "base_url_override": "http://127.0.0.1:8000",
     }
 
 
@@ -305,11 +296,11 @@ def test_policy_namespaces_endpoint_returns_service_payload(tmp_path: Path, monk
     payload = response.json()
     assert payload["items"] == ["image.blocks.species", "image.registries"]
     assert captured["source_root"] == source_root
-    assert captured["source_kind"] == "local_disk"
-    assert captured["active_server_url"] is None
+    assert captured["source_kind"] == "server_api"
+    assert captured["active_server_url"] == "http://127.0.0.1:8000"
     assert captured["session_id_override"] == "s1"
     assert captured["policy_type"] == "species_block"
-    assert captured["base_url_override"] is None
+    assert captured["base_url_override"] == "http://127.0.0.1:8000"
 
 
 def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
@@ -336,7 +327,7 @@ def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkey
     assert response.status_code == 200
     payload = response.json()
     assert payload["items"] == ["draft", "candidate", "active", "archived"]
-    assert captured == {"source_kind": "local_disk"}
+    assert captured == {"source_kind": "server_api"}
 
 
 def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
@@ -668,28 +659,34 @@ def test_api_first_proxy_endpoints_map_auth_failures_to_401_and_403(
     assert "Invalid or expired session" in unauthenticated_response.json()["detail"]
 
 
-def test_api_first_proxy_endpoints_return_503_when_mode_is_offline(
+def test_api_first_proxy_endpoints_return_503_when_runtime_mode_unavailable(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
-    """Mud-server backed proxy endpoints should fail closed in offline mode."""
+    """Mud-server backed proxy endpoints should fail closed when runtime mode is unavailable."""
     client, _, _ = _build_client(tmp_path)
-    mode_response = client.post("/api/runtime-mode", json={"mode_key": "offline"})
-    assert mode_response.status_code == 200
+    monkeypatch.setattr(
+        web_app_module,
+        "require_server_api_url",
+        lambda: (_ for _ in ()).throw(
+            web_app_module.RuntimeModeUnavailableError("runtime mode unavailable")
+        ),
+    )
 
     inventory_response = client.get("/api/policies")
     assert inventory_response.status_code == 503
-    assert "Offline mode active" in inventory_response.json()["detail"]
+    assert "runtime mode unavailable" in inventory_response.json()["detail"]
 
     activation_response = client.get(
         "/api/policy-activations-live",
         params={"scope": "pipeworks_web"},
     )
     assert activation_response.status_code == 503
-    assert "Offline mode active" in activation_response.json()["detail"]
+    assert "runtime mode unavailable" in activation_response.json()["detail"]
 
     publish_response = client.get("/api/policy-publish-runs/1")
     assert publish_response.status_code == 503
-    assert "Offline mode active" in publish_response.json()["detail"]
+    assert "runtime mode unavailable" in publish_response.json()["detail"]
 
 
 def test_policy_save_endpoint_runs_phase2_api_only_flow(
@@ -773,11 +770,19 @@ def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
     assert "missing session id" in response.json()["detail"]
 
 
-def test_policy_save_endpoint_returns_503_when_mode_is_offline(tmp_path: Path) -> None:
-    """Policy save should fail closed when runtime mode is offline/local-disk."""
+def test_policy_save_endpoint_returns_503_when_runtime_mode_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Policy save should fail closed when runtime mode is unavailable."""
     client, _, _ = _build_client(tmp_path)
-    mode_response = client.post("/api/runtime-mode", json={"mode_key": "offline"})
-    assert mode_response.status_code == 200
+    monkeypatch.setattr(
+        web_app_module,
+        "require_server_api_url",
+        lambda: (_ for _ in ()).throw(
+            web_app_module.RuntimeModeUnavailableError("runtime mode unavailable")
+        ),
+    )
 
     response = client.post(
         "/api/policy-save",
@@ -790,7 +795,7 @@ def test_policy_save_endpoint_returns_503_when_mode_is_offline(tmp_path: Path) -
         },
     )
     assert response.status_code == 503
-    assert "Offline mode active" in response.json()["detail"]
+    assert "runtime mode unavailable" in response.json()["detail"]
 
 
 def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:

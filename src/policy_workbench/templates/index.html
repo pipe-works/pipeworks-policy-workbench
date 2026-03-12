@@ -27,6 +27,7 @@
     <label for="runtime-mode-select" class="control-label runtime-mode-shell__label">Mode</label>
     <select id="runtime-mode-select" class="select select--sm" aria-label="Policy source mode">
       <option value="server_dev">Server (Dev)</option>
+      <option value="server_prod">Server (Production)</option>
     </select>
     <input
       id="runtime-mode-url"
@@ -66,7 +67,7 @@
       </div>
       <div class="panel-header-row panel-header-row--meta">
         <div class="panel-header-main">
-          <span id="tree-source-badge" class="badge badge--info">Local Disk</span>
+          <span id="tree-source-badge" class="badge badge--warn">Development: Login required</span>
         </div>
         <div class="panel-header-actions">
           <button

@@ -176,8 +176,8 @@ def build_runtime_auth_payload(
             active_server_url=active_server_url,
             session_present=False,
             access_granted=False,
-            status="offline",
-            detail="Offline mode active. Server authentication is disabled.",
+            status="error",
+            detail="Runtime mode must be server_api.",
         )
 
     try:
@@ -238,7 +238,7 @@ def build_runtime_login_payload(
     """Authenticate against the active mud-server URL and return session details."""
 
     if source_kind != "server_api":
-        raise ValueError("Offline mode active. Switch to a mud-server profile before logging in.")
+        raise ValueError("Runtime mode must be server_api.")
 
     normalized_username = (username or "").strip()
     if not normalized_username:
@@ -305,12 +305,6 @@ def build_policy_type_options_payload(
     """
 
     local_policy_types, local_source, local_detail = _load_local_policy_types_from_disk()
-    if source_kind != "server_api":
-        return PolicyTypeOptionsResponse(
-            items=local_policy_types,
-            source=local_source,
-            detail=local_detail,
-        )
 
     try:
         runtime = _resolve_mud_api_runtime_config(
@@ -366,13 +360,6 @@ def build_policy_namespace_options_payload(
         source_root=source_root,
         policy_type=normalized_policy_type,
     )
-    if source_kind != "server_api":
-        return PolicyTypeOptionsResponse(
-            items=local_namespaces,
-            source="local_disk",
-            detail="Loaded canonical namespaces from local policy files.",
-        )
-
     try:
         runtime = _resolve_mud_api_runtime_config(
             session_id_override=session_id_override,
@@ -415,16 +402,10 @@ def build_policy_status_options_payload(
     """Return canonical policy status options from local canonical contract."""
 
     statuses, source, detail = _load_local_policy_statuses_from_disk()
-    if source_kind == "server_api":
-        return PolicyTypeOptionsResponse(
-            items=statuses,
-            source=source,
-            detail=detail or "Loaded canonical statuses from local mud-server contract.",
-        )
     return PolicyTypeOptionsResponse(
         items=statuses,
         source=source,
-        detail=detail,
+        detail=detail or "Loaded canonical statuses from local mud-server contract.",
     )
 
 

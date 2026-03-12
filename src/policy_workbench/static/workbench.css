@@ -6,7 +6,7 @@
 
 .workbench-grid {
   display: grid;
-  grid-template-columns: 340px minmax(520px, 1fr) 420px;
+  grid-template-columns: 300px minmax(520px, 1fr) 420px;
   gap: 1px;
   background: var(--col-border);
   position: fixed;
@@ -505,12 +505,7 @@
 }
 
 .tree-summary-shell {
-  border: 1px solid var(--col-border);
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--col-surface-2) 45%, var(--col-bg));
-  overflow: visible;
-  margin-bottom: var(--sp-2);
-  padding: 2px;
+  display: none;
 }
 
 .tree-summary-metrics {
@@ -1135,7 +1130,7 @@
 
 .tree-list {
   gap: var(--sp-1);
-  padding: var(--sp-2);
+  padding: var(--sp-1);
 }
 
 .tree-group {
@@ -1195,8 +1190,8 @@
 .tree-group__files {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
-  padding: var(--sp-2);
+  gap: 4px;
+  padding: var(--sp-1);
   background: color-mix(in srgb, var(--col-surface-2) 50%, var(--col-bg));
 }
 
@@ -1210,7 +1205,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--col-text);
-  padding: var(--sp-2);
+  padding: 6px var(--sp-2);
   text-align: left;
   cursor: pointer;
 }
@@ -1366,7 +1361,7 @@
 
 @media (max-width: 1300px) {
   .workbench-grid {
-    grid-template-columns: 280px minmax(420px, 1fr) 320px;
+    grid-template-columns: 250px minmax(420px, 1fr) 320px;
   }
 
   .workbench-grid.is-tree-collapsed {
