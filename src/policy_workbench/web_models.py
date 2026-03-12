@@ -99,6 +99,22 @@ class RuntimeAuthResponse(BaseModel):
     detail: str
 
 
+class RuntimeLoginRequest(BaseModel):
+    """Request payload to authenticate against active mud-server profile."""
+
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class RuntimeLoginResponse(BaseModel):
+    """Runtime login result used by workbench session bootstrap controls."""
+
+    success: bool
+    session_id: str | None = None
+    role: str | None = None
+    detail: str
+
+
 class PolicySaveRequest(BaseModel):
     """Request payload for Phase 2 API-only policy save operations."""
 

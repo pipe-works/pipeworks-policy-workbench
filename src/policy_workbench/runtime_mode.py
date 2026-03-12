@@ -64,7 +64,7 @@ class RuntimeModeState:
 
 
 _STATE_LOCK = RLock()
-_ACTIVE_MODE_KEY = _MODE_SERVER_DEV
+_ACTIVE_MODE_KEY = _MODE_OFFLINE
 _MODE_URL_OVERRIDES: dict[str, str] = {}
 
 
@@ -198,12 +198,12 @@ def _reset_runtime_mode_for_tests() -> None:
     """Reset global runtime-mode state for unit tests."""
     with _STATE_LOCK:
         initial_key = _normalize_mode_key(
-            (os.getenv(_SOURCE_MODE_ENV, _MODE_SERVER_DEV) or "").strip()
+            (os.getenv(_SOURCE_MODE_ENV, _MODE_OFFLINE) or "").strip()
         )
         options = _build_options()
         option = _option_by_key(options, initial_key)
         global _ACTIVE_MODE_KEY  # noqa: PLW0603
-        _ACTIVE_MODE_KEY = option.mode_key if option is not None else _MODE_SERVER_DEV
+        _ACTIVE_MODE_KEY = option.mode_key if option is not None else _MODE_OFFLINE
         _MODE_URL_OVERRIDES.clear()
 
 

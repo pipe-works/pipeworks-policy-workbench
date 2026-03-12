@@ -181,6 +181,82 @@ def test_build_runtime_auth_payload_reports_forbidden_role(monkeypatch) -> None:
     assert "role is not admin/superuser" in payload.detail
 
 
+def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> None:
+    """Runtime login helper should return session data and enforce allowed roles."""
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {
+            "session_id": "session-admin-1",
+            "role": "admin",
+            "success": True,
+        },
+    )
+    success_payload = web_services.build_runtime_login_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        username="admin-user",
+        password="secret",
+    )
+    assert success_payload.success is True
+    assert success_payload.session_id == "session-admin-1"
+    assert success_payload.role == "admin"
+
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json_anonymous",
+        lambda **_kwargs: {
+            "session_id": "session-player-1",
+            "role": "player",
+            "success": True,
+        },
+    )
+    forbidden_payload = web_services.build_runtime_login_payload(
+        mode_key="server_dev",
+        source_kind="server_api",
+        active_server_url="http://mud.local:8000",
+        username="player-user",
+        password="secret",
+    )
+    assert forbidden_payload.success is False
+    assert forbidden_payload.session_id == "session-player-1"
+    assert forbidden_payload.role == "player"
+    assert "not admin/superuser" in forbidden_payload.detail
+
+
+def test_build_runtime_login_payload_rejects_offline_and_missing_credentials() -> None:
+    """Runtime login helper should reject offline mode and blank credentials."""
+
+    with pytest.raises(ValueError, match="Offline mode active"):
+        web_services.build_runtime_login_payload(
+            mode_key="offline",
+            source_kind="local_disk",
+            active_server_url=None,
+            username="admin",
+            password="secret",
+        )
+
+    with pytest.raises(ValueError, match="Username is required"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username=" ",
+            password="secret",
+        )
+
+    with pytest.raises(ValueError, match="Password is required"):
+        web_services.build_runtime_login_payload(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://mud.local:8000",
+            username="admin",
+            password=" ",
+        )
+
+
 def test_fetch_mud_api_json_builds_url_and_returns_object_payload(monkeypatch) -> None:
     """Transport helper should append session_id and parse object JSON responses."""
 

@@ -7,12 +7,12 @@ import pytest
 from policy_workbench import runtime_mode
 
 
-def test_default_runtime_mode_is_server_dev_with_http_localhost() -> None:
-    """Runtime mode should default to dev mud-server API profile."""
+def test_default_runtime_mode_is_offline_local_disk() -> None:
+    """Runtime mode should default to offline local-disk profile."""
     state = runtime_mode.get_runtime_mode()
-    assert state.mode_key == "server_dev"
-    assert state.source_kind == "server_api"
-    assert state.active_server_url == "http://127.0.0.1:8000"
+    assert state.mode_key == "offline"
+    assert state.source_kind == "local_disk"
+    assert state.active_server_url is None
     assert {option.mode_key for option in state.options} == {
         "offline",
         "server_dev",

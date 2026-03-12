@@ -34,6 +34,7 @@ from .web_models import (
     PolicyPublishRunProxyResponse,
     PolicyTreeResponse,
     RuntimeAuthResponse,
+    RuntimeLoginResponse,
     SyncActionResponse,
     SyncCompareResponse,
     SyncCompareVariantResponse,
@@ -51,6 +52,7 @@ _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
 _MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
 _POLICY_API_ROLE_REQUIRED_DETAIL = "Policy API requires admin or superuser role."
 _POLICY_API_AUTH_PROBE_POLICY_TYPE = "__ppw_auth_probe__"
+_POLICY_ALLOWED_ROLES = {"admin", "superuser"}
 
 try:
     import pipeworks_ipc.hashing as ipc_hashing
@@ -167,7 +169,7 @@ def build_runtime_auth_payload(
             session_id_override=session_id_override,
             base_url_override=base_url_override,
         )
-    except ValueError as exc:
+    except ValueError:
         return RuntimeAuthResponse(
             mode_key=mode_key,
             source_kind=source_kind,
@@ -175,7 +177,7 @@ def build_runtime_auth_payload(
             session_present=False,
             access_granted=False,
             status="missing_session",
-            detail=str(exc),
+            detail="No active runtime session. Login with an admin/superuser account.",
         )
 
     try:
@@ -205,6 +207,69 @@ def build_runtime_auth_payload(
         access_granted=True,
         status="authorized",
         detail="Session is authorized for admin/superuser policy APIs.",
+    )
+
+
+def build_runtime_login_payload(
+    *,
+    mode_key: str,
+    source_kind: str,
+    active_server_url: str | None,
+    username: str,
+    password: str,
+    base_url_override: str | None = None,
+) -> RuntimeLoginResponse:
+    """Authenticate against the active mud-server URL and return session details."""
+
+    if source_kind != "server_api":
+        raise ValueError("Offline mode active. Switch to a mud-server profile before logging in.")
+
+    normalized_username = (username or "").strip()
+    if not normalized_username:
+        raise ValueError("Username is required.")
+    normalized_password = (password or "").strip()
+    if not normalized_password:
+        raise ValueError("Password is required.")
+
+    runtime_base_url = (
+        base_url_override
+        if base_url_override is not None
+        else active_server_url if active_server_url is not None else _DEFAULT_MUD_API_BASE_URL
+    )
+    base_url = _normalize_base_url(runtime_base_url)
+    if not base_url:
+        raise ValueError("Mud API base URL must not be empty.")
+
+    payload = _fetch_mud_api_json_anonymous(
+        base_url=base_url,
+        method="POST",
+        path="/login",
+        body={
+            "username": normalized_username,
+            "password": normalized_password,
+        },
+    )
+
+    session_id = payload.get("session_id")
+    role = payload.get("role")
+    if not isinstance(session_id, str) or not session_id.strip():
+        raise ValueError("Mud login response did not include session_id.")
+    if not isinstance(role, str) or not role.strip():
+        raise ValueError("Mud login response did not include role.")
+    normalized_role = role.strip()
+    if normalized_role not in _POLICY_ALLOWED_ROLES:
+        return RuntimeLoginResponse(
+            success=False,
+            session_id=session_id.strip(),
+            role=normalized_role,
+            detail="Authenticated, but role is not admin/superuser for policy APIs.",
+        )
+
+    return RuntimeLoginResponse(
+        success=True,
+        session_id=session_id.strip(),
+        role=normalized_role,
+        detail="Authenticated as admin/superuser.",
     )
 
 
@@ -640,6 +705,14 @@ def _resolve_mud_api_runtime_config(
     return _MudApiRuntimeConfig(base_url=base_url, session_id=session_id)
 
 
+def _normalize_base_url(value: str | None) -> str:
+    """Normalize mud API base URL and reject empty/invalid values."""
+    base_url = (value or "").strip().rstrip("/")
+    if not base_url:
+        return ""
+    return base_url
+
+
 def _fetch_mud_api_json(
     *,
     runtime: _MudApiRuntimeConfig,
@@ -656,6 +729,41 @@ def _fetch_mud_api_json(
 
     try:
         with urlopen(request, timeout=runtime.timeout_seconds) as response:  # noqa: S310
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        detail = _mud_api_http_error_detail(exc)
+        raise ValueError(f"Mud API request failed ({method} {url}): {detail}") from exc
+    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Mud API request failed ({method} {url}): {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Mud API response for {method} {url} must be a JSON object.")
+    return payload
+
+
+def _fetch_mud_api_json_anonymous(
+    *,
+    base_url: str,
+    method: str,
+    path: str,
+    body: dict[str, object] | None,
+    timeout_seconds: float = 8.0,
+) -> dict[str, object]:
+    """Issue one mud-server API request without session query injection."""
+    url = f"{base_url}{path}"
+    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
+    request = Request(
+        url=url,
+        method=method,
+        data=payload_bytes,
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
             payload = json.loads(response.read().decode("utf-8"))
     except HTTPError as exc:
         detail = _mud_api_http_error_detail(exc)

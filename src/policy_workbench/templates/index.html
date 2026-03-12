@@ -38,6 +38,23 @@
     <button id="runtime-mode-apply" class="btn btn--secondary btn--sm hidden" type="button">
       Apply URL
     </button>
+    <input
+      id="runtime-login-username"
+      class="input input--compact hidden"
+      type="text"
+      placeholder="username"
+      aria-label="Mud login username"
+    />
+    <input
+      id="runtime-login-password"
+      class="input input--compact hidden"
+      type="password"
+      placeholder="password"
+      aria-label="Mud login password"
+    />
+    <button id="runtime-login-apply" class="btn btn--secondary btn--sm hidden" type="button">
+      Login
+    </button>
     <span id="runtime-mode-url-label" class="runtime-mode-url">Loading runtime mode...</span>
     <span id="runtime-auth-label" class="runtime-mode-url">Checking session access...</span>
   </div>
@@ -45,21 +62,31 @@
 
 <main id="workbench-grid" class="app-grid workbench-grid" aria-label="Policy Workbench">
   <section id="panel-tree" class="panel panel--left" aria-label="Policy Tree Browser">
-    <div class="panel-header-row">
-      <div class="panel-header-main">
+    <div class="panel-header-stack">
+      <div class="panel-header-title-row">
         <h2 class="panel__heading">Policy Tree</h2>
-        <span id="tree-source-badge" class="badge badge--info">Local Disk</span>
       </div>
-      <div class="panel-header-actions">
-        <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
-        <button
-          id="btn-toggle-tree"
-          class="btn btn--secondary btn--sm tree-toggle-button"
-          type="button"
-          aria-expanded="true"
-          aria-label="Collapse Policy Tree panel"
-          aria-controls="panel-tree"
-        >◀</button>
+      <div class="panel-header-row panel-header-row--meta">
+        <div class="panel-header-main">
+          <span id="tree-source-badge" class="badge badge--info">Local Disk</span>
+        </div>
+        <div class="panel-header-actions">
+          <button
+            id="btn-refresh-tree"
+            class="btn btn--secondary btn--sm"
+            type="button"
+            aria-label="Refresh policy tree"
+            title="Refresh policy tree"
+          >↻</button>
+          <button
+            id="btn-toggle-tree"
+            class="btn btn--secondary btn--sm tree-toggle-button"
+            type="button"
+            aria-expanded="true"
+            aria-label="Collapse Policy Tree panel"
+            aria-controls="panel-tree"
+          >◀</button>
+        </div>
       </div>
     </div>
     <div class="tree-summary-shell" aria-live="polite" aria-label="Policy tree counts">
@@ -80,13 +107,19 @@
   </section>
 
   <section class="panel panel--centre" aria-label="Raw File Editor">
-    <div class="inventory-shell" aria-label="API-first policy inventory">
-      <div class="panel-header-row">
-        <div class="panel-header-main">
-          <h2 class="panel__heading">Policy Inventory (API-first)</h2>
-          <span id="inventory-source-badge" class="badge badge--muted">Server API</span>
+    <div class="inventory-shell" aria-label="Policy inventory">
+      <div class="panel-header-stack">
+        <div class="panel-header-title-row">
+          <h2 class="panel__heading">Policy Inventory</h2>
         </div>
-        <button id="btn-refresh-inventory" class="btn btn--secondary" type="button">Refresh Inventory</button>
+        <div class="panel-header-row panel-header-row--meta">
+          <div class="panel-header-main">
+            <span id="inventory-source-badge" class="badge badge--muted">Server API</span>
+          </div>
+          <div class="panel-header-actions">
+            <button id="btn-refresh-inventory" class="btn btn--secondary" type="button">Refresh Inventory</button>
+          </div>
+        </div>
       </div>
       <div class="inventory-filters">
         <label class="inventory-filter">

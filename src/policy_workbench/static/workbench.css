@@ -87,6 +87,33 @@
   gap: var(--sp-2);
 }
 
+.panel-header-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.panel-header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.panel-header-row--meta {
+  flex-wrap: wrap;
+  row-gap: var(--sp-1);
+}
+
+.panel-header-row--meta .panel-header-main {
+  flex: 1 1 auto;
+}
+
+.panel-header-row--meta .panel-header-actions {
+  margin-left: auto;
+}
+
 .panel-header-main {
   display: inline-flex;
   align-items: center;
@@ -1262,10 +1289,16 @@
 }
 
 .workbench-grid.is-tree-collapsed .panel--left .panel__heading,
+.workbench-grid.is-tree-collapsed .panel--left .panel-header-title-row,
 .workbench-grid.is-tree-collapsed .panel--left #btn-refresh-tree,
+.workbench-grid.is-tree-collapsed .panel--left #tree-source-badge,
 .workbench-grid.is-tree-collapsed .panel--left .tree-summary-shell,
 .workbench-grid.is-tree-collapsed .panel--left .list-shell {
   display: none;
+}
+
+.workbench-grid.is-tree-collapsed .panel--left .panel-header-stack {
+  gap: 0;
 }
 
 .workbench-grid.is-tree-collapsed .panel--left .panel-header-row {
