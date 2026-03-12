@@ -176,10 +176,9 @@ def create_web_app(
             )
         except ValueError as exc:
             detail = str(exc)
-            status = (
-                503 if "Offline mode active" in detail else _status_code_for_mud_api_error(detail)
-            )
-            raise HTTPException(status_code=status, detail=detail) from exc
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policy-types", response_model=PolicyTypeOptionsResponse)
     async def api_policy_types(

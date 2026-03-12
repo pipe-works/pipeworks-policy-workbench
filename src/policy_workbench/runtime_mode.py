@@ -1,8 +1,7 @@
 """Runtime source-mode state for policy workbench web authoring.
 
-The workbench supports explicit operating profiles so users can tell exactly
-which source family is active:
-- local-disk mirror workflows (offline)
+The workbench supports explicit mud-server operating profiles so users can
+tell exactly which server family is active:
 - mud-server API workflows (dev/production server profiles)
 """
 
@@ -13,11 +12,9 @@ from dataclasses import dataclass
 from threading import RLock
 from urllib.parse import urlparse
 
-_MODE_OFFLINE = "offline"
 _MODE_SERVER_DEV = "server_dev"
 _MODE_SERVER_PROD = "server_prod"
 
-_SOURCE_LOCAL_DISK = "local_disk"
 _SOURCE_SERVER_API = "server_api"
 
 _SOURCE_MODE_ENV = "PW_POLICY_SOURCE_MODE"
@@ -31,15 +28,9 @@ _REMOTE_PROD_BASE_URL_ENV = "PW_POLICY_REMOTE_PROD_MUD_API_BASE_URL"
 _DEFAULT_DEV_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_PROD_BASE_URL = "https://api.pipe-works.org"
 
-_LEGACY_MODE_ALIASES = {
-    "server_local": _MODE_SERVER_DEV,
-    "server_remote_dev": _MODE_SERVER_DEV,
-    "server_remote_prod": _MODE_SERVER_PROD,
-}
-
 
 class RuntimeModeUnavailableError(RuntimeError):
-    """Raised when mud-server API behavior is requested in offline mode."""
+    """Raised when mud-server API behavior is unavailable for active profile."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +55,7 @@ class RuntimeModeState:
 
 
 _STATE_LOCK = RLock()
-_ACTIVE_MODE_KEY = _MODE_OFFLINE
+_ACTIVE_MODE_KEY = _MODE_SERVER_DEV
 _MODE_URL_OVERRIDES: dict[str, str] = {}
 
 
@@ -111,7 +102,7 @@ def require_server_api_url() -> str:
     state = get_runtime_mode()
     if state.source_kind != _SOURCE_SERVER_API:
         raise RuntimeModeUnavailableError(
-            "Offline mode active. Switch to a mud-server profile to use API-backed views."
+            "Runtime mode is not configured for mud-server API usage."
         )
     if not state.active_server_url:
         raise RuntimeModeUnavailableError("No mud-server URL configured for the active mode.")
@@ -134,13 +125,6 @@ def _build_options() -> tuple[RuntimeModeOption, ...]:
     )
     return (
         RuntimeModeOption(
-            mode_key=_MODE_OFFLINE,
-            label="Offline",
-            source_kind=_SOURCE_LOCAL_DISK,
-            default_server_url=None,
-            url_editable=False,
-        ),
-        RuntimeModeOption(
             mode_key=_MODE_SERVER_DEV,
             label="Server (Dev)",
             source_kind=_SOURCE_SERVER_API,
@@ -158,8 +142,8 @@ def _build_options() -> tuple[RuntimeModeOption, ...]:
 
 
 def _normalize_mode_key(mode_key: str) -> str:
-    """Normalize mode keys, preserving support for historical key names."""
-    return _LEGACY_MODE_ALIASES.get(mode_key, mode_key)
+    """Normalize mode keys for runtime mode selection."""
+    return mode_key
 
 
 def _option_by_key(
@@ -198,12 +182,12 @@ def _reset_runtime_mode_for_tests() -> None:
     """Reset global runtime-mode state for unit tests."""
     with _STATE_LOCK:
         initial_key = _normalize_mode_key(
-            (os.getenv(_SOURCE_MODE_ENV, _MODE_OFFLINE) or "").strip()
+            (os.getenv(_SOURCE_MODE_ENV, _MODE_SERVER_DEV) or "").strip()
         )
         options = _build_options()
         option = _option_by_key(options, initial_key)
         global _ACTIVE_MODE_KEY  # noqa: PLW0603
-        _ACTIVE_MODE_KEY = option.mode_key if option is not None else _MODE_OFFLINE
+        _ACTIVE_MODE_KEY = option.mode_key if option is not None else _MODE_SERVER_DEV
         _MODE_URL_OVERRIDES.clear()
 
 

@@ -100,7 +100,7 @@ const state = {
   compareContentElements: [],
   syncedCompareIds: new Set(),
   isSyncScrolling: false,
-  treeCollapsed: false,
+  treeCollapsed: true,
   activeSyncStep: "build",
   latestActivationPayload: null,
   runtimeMode: null,
@@ -172,7 +172,13 @@ function activeRuntimeModeOption() {
   if (!state.runtimeMode) {
     return null;
   }
-  return state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key) || null;
+  return (
+    state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key)
+    || (state.runtimeMode.options || []).find(
+      (candidate) => candidate.mode_key === state.runtimeMode.mode_key
+    )
+    || null
+  );
 }
 
 function runtimeAuthStatus() {
@@ -190,12 +196,6 @@ function setRuntimeModeBadge() {
 
   const label = runtimeModeLabel();
   dom.runtimeModeBadge.classList.remove("badge--muted", "badge--active", "badge--info");
-  if (runtimeSourceKind() === "local_disk") {
-    dom.runtimeModeBadge.classList.add("badge--muted");
-    dom.runtimeModeBadge.textContent = `${label} · Local Disk`;
-    return;
-  }
-
   if (state.runtimeMode?.mode_key === "server_dev") {
     dom.runtimeModeBadge.classList.add("badge--active");
   } else {
@@ -221,9 +221,6 @@ function setRuntimeAuthIndicators() {
     } else if (authStatus === "authorized") {
       dom.runtimeAuthBadge.classList.add("badge--active");
       dom.runtimeAuthBadge.textContent = "Auth OK";
-    } else if (authStatus === "offline") {
-      dom.runtimeAuthBadge.classList.add("badge--muted");
-      dom.runtimeAuthBadge.textContent = "Auth Offline";
     } else if (authStatus === "missing_session") {
       dom.runtimeAuthBadge.classList.add("badge--warn");
       dom.runtimeAuthBadge.textContent = "Session Missing";
@@ -252,42 +249,32 @@ function setRuntimeAuthIndicators() {
 }
 
 function setSourceBadges() {
-  const serverEnabled = isServerApiMode();
   const modeKey = String(state.runtimeMode?.mode_key || "");
   const modeLabel = runtimeModeLabel();
   const activeUrl = activeRuntimeServerUrl();
 
   if (dom.treeSourceBadge) {
-    if (!serverEnabled) {
-      dom.treeSourceBadge.className = "badge badge--muted";
-      dom.treeSourceBadge.textContent = "Offline: Local Disk";
-      dom.treeSourceBadge.title = "Policy tree and raw file reads are sourced from local disk in offline mode.";
+    const treeModeLabel = modeKey === "server_prod" ? "Production" : "Development";
+    if (isServerAuthorized()) {
+      dom.treeSourceBadge.className = "badge badge--info";
+      dom.treeSourceBadge.textContent = `${treeModeLabel}: ${activeUrl || "--"}`;
+      dom.treeSourceBadge.title = activeUrl
+        ? `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel} at ${activeUrl}.`
+        : `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel}.`;
     } else {
-      const treeModeLabel = modeKey === "server_prod" ? "Production" : "Development";
-      if (isServerAuthorized()) {
-        dom.treeSourceBadge.className = "badge badge--info";
-        dom.treeSourceBadge.textContent = `${treeModeLabel}: ${activeUrl || "--"}`;
-        dom.treeSourceBadge.title = activeUrl
-          ? `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel} at ${activeUrl}.`
-          : `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel}.`;
-      } else {
-        dom.treeSourceBadge.className = "badge badge--warn";
-        dom.treeSourceBadge.textContent = `${treeModeLabel}: Login required`;
-        dom.treeSourceBadge.title = activeUrl
-          ? `Sign in as admin/superuser to activate ${treeModeLabel} server API features at ${activeUrl}.`
-          : `Sign in as admin/superuser to activate ${treeModeLabel} server API features.`;
-      }
+      dom.treeSourceBadge.className = "badge badge--warn";
+      dom.treeSourceBadge.textContent = `${treeModeLabel}: Login required`;
+      dom.treeSourceBadge.title = activeUrl
+        ? `Sign in as admin/superuser to activate ${treeModeLabel} server API features at ${activeUrl}.`
+        : `Sign in as admin/superuser to activate ${treeModeLabel} server API features.`;
     }
   }
 
-  const serverBadgeText = serverEnabled
-    ? `${modeLabel}${activeUrl ? ` · ${activeUrl}` : ""}`
-    : "Offline (server disabled)";
-  const serverBadgeClass = serverEnabled ? "badge badge--info" : "badge badge--muted";
+  const serverBadgeText = `${modeLabel}${activeUrl ? ` · ${activeUrl}` : ""}`;
 
   if (dom.inventorySourceBadge) {
     const canReadServer = isServerAuthorized();
-    const lockedBadgeClass = serverEnabled ? "badge badge--warn" : serverBadgeClass;
+    const lockedBadgeClass = "badge badge--warn";
     dom.inventorySourceBadge.className = canReadServer ? "badge badge--info" : lockedBadgeClass;
     dom.inventorySourceBadge.textContent = canReadServer ? serverBadgeText : "Server locked";
     dom.inventorySourceBadge.title = canReadServer
@@ -297,7 +284,7 @@ function setSourceBadges() {
 
   if (dom.activationSourceBadge) {
     const canReadServer = isServerAuthorized();
-    const lockedBadgeClass = serverEnabled ? "badge badge--warn" : serverBadgeClass;
+    const lockedBadgeClass = "badge badge--warn";
     dom.activationSourceBadge.className = canReadServer ? "badge badge--info" : lockedBadgeClass;
     dom.activationSourceBadge.textContent = canReadServer ? serverBadgeText : "Server locked";
     dom.activationSourceBadge.title = canReadServer
@@ -341,10 +328,10 @@ function applyRuntimeModeControls() {
     return;
   }
 
-  dom.runtimeModeOptionsByKey = new Map();
+  state.runtimeModeOptionsByKey = new Map();
   dom.runtimeModeSelect.innerHTML = "";
   for (const option of state.runtimeMode.options || []) {
-    dom.runtimeModeOptionsByKey.set(option.mode_key, option);
+    state.runtimeModeOptionsByKey.set(option.mode_key, option);
     const optionElement = document.createElement("option");
     optionElement.value = option.mode_key;
     optionElement.textContent = option.label;
@@ -356,7 +343,7 @@ function applyRuntimeModeControls() {
   }
 
   const activeOption = activeRuntimeModeOption();
-  const editableServerUrl = isServerApiMode();
+  const editableServerUrl = Boolean(activeOption?.url_editable);
   const activeServerUrl = activeRuntimeServerUrl();
   const defaultServerUrl = (activeOption?.default_server_url || "").trim();
   const usernameValue = (dom.runtimeLoginUsername?.value || "").trim();
@@ -387,9 +374,7 @@ function applyRuntimeModeControls() {
     }
   }
   if (dom.runtimeModeUrlLabel) {
-    if (!isServerApiMode()) {
-      dom.runtimeModeUrlLabel.textContent = "Offline mode active. Server APIs are disabled.";
-    } else if (activeServerUrl) {
+    if (activeServerUrl) {
       dom.runtimeModeUrlLabel.textContent = `Active server URL: ${activeServerUrl}`;
     } else if (defaultServerUrl) {
       dom.runtimeModeUrlLabel.textContent = `Default server URL: ${defaultServerUrl}`;
@@ -644,19 +629,12 @@ async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
     } else if (runtimeAuth?.status === "unauthenticated") {
       renderActivationMessage("Server mode connected, but session is invalid or expired.");
     } else {
-      renderActivationMessage(
-        "Offline mode active. Switch to server mode to view activation mappings."
-      );
+      renderActivationMessage("Server mode connected, but no session id is configured.");
     }
   }
 }
 
 async function loginRuntimeSession() {
-  if (!isServerApiMode()) {
-    setStatus("Login unavailable in offline mode.");
-    return;
-  }
-
   const username = (dom.runtimeLoginUsername?.value || "").trim();
   const password = (dom.runtimeLoginPassword?.value || "").trim();
   if (!username || !password) {
@@ -701,10 +679,6 @@ async function loginRuntimeSession() {
 }
 
 async function logoutRuntimeSession() {
-  if (!isServerApiMode()) {
-    setStatus("Logout unavailable in offline mode.");
-    return;
-  }
   if (!(state.runtimeSessionId || "").trim()) {
     setStatus("No active runtime session to log out.");
     return;
@@ -1249,9 +1223,7 @@ function renderPolicyInventory(items) {
   if (!items.length) {
     const item = document.createElement("li");
     item.className = "report-item report-item--info";
-    if (!isServerApiMode()) {
-      item.textContent = "Offline mode active. Inventory requires mud-server API mode.";
-    } else if (!isServerAuthorized()) {
+    if (!isServerAuthorized()) {
       item.textContent = "Server mode connected, but admin/superuser session is required.";
     } else {
       item.textContent = "No policies matched current filters.";
@@ -1298,11 +1270,6 @@ function renderPolicyInventory(items) {
 }
 
 async function refreshPolicyInventory() {
-  if (!isServerApiMode()) {
-    renderPolicyInventory([]);
-    setStatus("Policy inventory unavailable in offline mode.");
-    return;
-  }
   if (!isServerAuthorized()) {
     renderPolicyInventory([]);
     setStatus("Policy inventory requires an admin/superuser session.");
@@ -1321,10 +1288,6 @@ async function refreshPolicyInventory() {
 }
 
 async function loadPolicyObject(policyId, variant = "") {
-  if (!isServerApiMode()) {
-    setStatus("Cannot load policy object while offline mode is active.");
-    return;
-  }
   if (!isServerAuthorized()) {
     setStatus("Cannot load policy object: admin/superuser session required.");
     return;
@@ -1423,13 +1386,6 @@ function renderActivationScopePayload(payload) {
 }
 
 async function refreshActivationScope({ silent = false } = {}) {
-  if (!isServerApiMode()) {
-    renderActivationMessage("Offline mode active. Switch to a server mode to view scope mappings.");
-    if (!silent) {
-      setStatus("Activation mapping unavailable in offline mode.");
-    }
-    return null;
-  }
   if (!isServerAuthorized()) {
     renderActivationMessage("Activation mapping requires an admin/superuser session.");
     if (!silent) {
@@ -1477,8 +1433,12 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
   state.fileIndex = artifacts;
   state.sourceRoot = sourceRoot;
   state.directoriesCount = directoriesCount;
-  dom.treeSummaryDirectories.textContent = `${directoriesCount}`;
-  dom.treeSummaryFiles.textContent = `${artifacts.length}`;
+  if (dom.treeSummaryDirectories) {
+    dom.treeSummaryDirectories.textContent = `${directoriesCount}`;
+  }
+  if (dom.treeSummaryFiles) {
+    dom.treeSummaryFiles.textContent = `${artifacts.length}`;
+  }
   updateStatusSourceLine();
   setSourceBadges();
 
@@ -1498,7 +1458,9 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
 
     const details = document.createElement("details");
     details.className = "tree-group__details";
-    details.open = true;
+    details.open = directoryArtifacts.some(
+      (artifact) => artifact.relative_path === state.selectedPath
+    );
 
     const summary = document.createElement("summary");
     summary.className = "tree-group__summary";
@@ -1526,11 +1488,7 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
       pathSpan.className = "tree-item__path";
       pathSpan.textContent = basenameFromPath(artifact.relative_path);
 
-      const roleSpan = document.createElement("span");
-      roleSpan.className = "tree-item__role";
-      roleSpan.textContent = artifact.role;
-
-      button.append(pathSpan, roleSpan);
+      button.append(pathSpan);
       button.addEventListener("click", () => loadFile(artifact.relative_path, artifact));
 
       fileItem.appendChild(button);
@@ -2279,10 +2237,6 @@ async function loadFile(relativePath, artifact = null) {
 }
 
 async function saveCurrentFile() {
-  if (!isServerApiMode()) {
-    setStatus("Save unavailable in offline mode. Switch to a mud-server mode first.");
-    return;
-  }
   if (!isServerAuthorized()) {
     setStatus("Save unavailable: admin/superuser mud-server session required.");
     return;
@@ -2428,7 +2382,7 @@ async function init() {
   wireThemeToggle();
   wireSyncTabs();
   setActiveSyncStep("build");
-  setTreeCollapsed(false);
+  setTreeCollapsed(true);
   try {
     await getRuntimeModeState();
     await refreshRuntimeAuthState({ silent: true });
@@ -2655,7 +2609,7 @@ async function init() {
     } else if (runtimeAuthStatus() === "unauthenticated") {
       renderActivationMessage("Server mode connected, but session is invalid or expired.");
     } else {
-      renderActivationMessage("Offline mode active. Switch to server mode to view scope mappings.");
+      renderActivationMessage("Server mode connected, but no session id is configured.");
     }
   }
   await runValidation();
