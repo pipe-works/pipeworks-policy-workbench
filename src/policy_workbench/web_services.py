@@ -33,6 +33,7 @@ from .web_models import (
     PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
     PolicyTreeResponse,
+    RuntimeAuthResponse,
     SyncActionResponse,
     SyncCompareResponse,
     SyncCompareVariantResponse,
@@ -48,6 +49,8 @@ _CANONICAL_HASH_URL_ENV = "PW_POLICY_HASH_SNAPSHOT_URL"
 _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
 _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
 _MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
+_POLICY_API_ROLE_REQUIRED_DETAIL = "Policy API requires admin or superuser role."
+_POLICY_API_AUTH_PROBE_POLICY_TYPE = "__ppw_auth_probe__"
 
 try:
     import pipeworks_ipc.hashing as ipc_hashing
@@ -132,15 +135,92 @@ def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
     )
 
 
+def build_runtime_auth_payload(
+    *,
+    mode_key: str,
+    source_kind: str,
+    active_server_url: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None = None,
+) -> RuntimeAuthResponse:
+    """Build runtime auth probe payload for server-backed policy operations.
+
+    Policy APIs on mud-server are already restricted to admin/superuser roles.
+    This probe gives the workbench a single explicit auth state so the UI can
+    disable server-backed actions when the configured session is missing,
+    expired, or lacks required role permissions.
+    """
+
+    if source_kind != "server_api":
+        return RuntimeAuthResponse(
+            mode_key=mode_key,
+            source_kind=source_kind,
+            active_server_url=active_server_url,
+            session_present=False,
+            access_granted=False,
+            status="offline",
+            detail="Offline mode active. Server authentication is disabled.",
+        )
+
+    try:
+        runtime = _resolve_mud_api_runtime_config(
+            session_id_override=session_id_override,
+            base_url_override=base_url_override,
+        )
+    except ValueError as exc:
+        return RuntimeAuthResponse(
+            mode_key=mode_key,
+            source_kind=source_kind,
+            active_server_url=active_server_url,
+            session_present=False,
+            access_granted=False,
+            status="missing_session",
+            detail=str(exc),
+        )
+
+    try:
+        _fetch_mud_api_json(
+            runtime=runtime,
+            method="GET",
+            path="/api/policies",
+            query_params={"policy_type": _POLICY_API_AUTH_PROBE_POLICY_TYPE},
+        )
+    except ValueError as exc:
+        status, detail = _classify_runtime_auth_probe_error(str(exc))
+        return RuntimeAuthResponse(
+            mode_key=mode_key,
+            source_kind=source_kind,
+            active_server_url=runtime.base_url,
+            session_present=True,
+            access_granted=False,
+            status=status,
+            detail=detail,
+        )
+
+    return RuntimeAuthResponse(
+        mode_key=mode_key,
+        source_kind=source_kind,
+        active_server_url=runtime.base_url,
+        session_present=True,
+        access_granted=True,
+        status="authorized",
+        detail="Session is authorized for admin/superuser policy APIs.",
+    )
+
+
 def build_policy_inventory_payload(
     *,
     policy_type: str | None,
     namespace: str | None,
     status: str | None,
     session_id_override: str | None,
+    base_url_override: str | None = None,
 ) -> PolicyInventoryResponse:
     """Build API-first policy inventory payload from mud-server canonical API."""
-    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
 
     query_params: dict[str, str] = {}
     if (policy_type or "").strip():
@@ -197,9 +277,13 @@ def build_policy_object_detail_payload(
     policy_id: str,
     variant: str | None,
     session_id_override: str | None,
+    base_url_override: str | None = None,
 ) -> PolicyObjectDetailResponse:
     """Build API-first detail payload for one policy object variant."""
-    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
     query_params: dict[str, str] = {}
     if (variant or "").strip():
         query_params["variant"] = str(variant).strip()
@@ -218,9 +302,13 @@ def build_policy_activation_scope_payload(
     scope: str,
     effective: bool,
     session_id_override: str | None,
+    base_url_override: str | None = None,
 ) -> PolicyActivationScopeResponse:
     """Build activation-scope payload from mud-server policy activation API."""
-    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
     payload = _fetch_mud_api_json(
         runtime=runtime,
         method="GET",
@@ -240,9 +328,13 @@ def build_policy_publish_run_payload(
     *,
     publish_run_id: int,
     session_id_override: str | None,
+    base_url_override: str | None = None,
 ) -> PolicyPublishRunProxyResponse:
     """Build publish-run payload proxy from mud-server canonical publish API."""
-    runtime = _resolve_mud_api_runtime_config(session_id_override=session_id_override)
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
     payload = _fetch_mud_api_json(
         runtime=runtime,
         method="GET",
@@ -503,9 +595,36 @@ def build_hash_status_payload(
     )
 
 
-def _resolve_mud_api_runtime_config(*, session_id_override: str | None) -> _MudApiRuntimeConfig:
+def _classify_runtime_auth_probe_error(error_detail: str) -> tuple[str, str]:
+    """Classify mud-server auth probe failure into stable UI-facing status."""
+
+    if _POLICY_API_ROLE_REQUIRED_DETAIL in error_detail:
+        return (
+            "forbidden",
+            "Session is valid but role is not admin/superuser.",
+        )
+
+    if "Invalid or expired session" in error_detail or "Invalid session user" in error_detail:
+        return (
+            "unauthenticated",
+            "Session is invalid or expired.",
+        )
+
+    return ("error", error_detail)
+
+
+def _resolve_mud_api_runtime_config(
+    *,
+    session_id_override: str | None,
+    base_url_override: str | None = None,
+) -> _MudApiRuntimeConfig:
     """Resolve mud-server API runtime config from env vars and optional session override."""
-    base_url = os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL).strip().rstrip("/")
+    base_candidate = (
+        base_url_override
+        if base_url_override is not None
+        else os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL)
+    )
+    base_url = (base_candidate or "").strip().rstrip("/")
     if not base_url:
         raise ValueError("Mud API base URL must not be empty.")
 

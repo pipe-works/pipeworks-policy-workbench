@@ -19,10 +19,37 @@
   >☀ Light</button>
 </header>
 
+<section class="runtime-mode-shell" aria-label="Policy source mode">
+  <div class="runtime-mode-shell__controls">
+    <span class="runtime-mode-shell__title">Policy Source Mode</span>
+    <span id="runtime-mode-badge" class="badge badge--muted">Loading</span>
+    <span id="runtime-auth-badge" class="badge badge--muted">Auth Pending</span>
+    <label for="runtime-mode-select" class="control-label runtime-mode-shell__label">Mode</label>
+    <select id="runtime-mode-select" class="select select--sm" aria-label="Policy source mode">
+      <option value="server_dev">Server (Dev)</option>
+    </select>
+    <input
+      id="runtime-mode-url"
+      class="input input--url hidden"
+      type="url"
+      placeholder="https://mud-dev.example.com"
+      aria-label="Mud server URL"
+    />
+    <button id="runtime-mode-apply" class="btn btn--secondary btn--sm hidden" type="button">
+      Apply URL
+    </button>
+    <span id="runtime-mode-url-label" class="runtime-mode-url">Loading runtime mode...</span>
+    <span id="runtime-auth-label" class="runtime-mode-url">Checking session access...</span>
+  </div>
+</section>
+
 <main id="workbench-grid" class="app-grid workbench-grid" aria-label="Policy Workbench">
   <section id="panel-tree" class="panel panel--left" aria-label="Policy Tree Browser">
     <div class="panel-header-row">
-      <h2 class="panel__heading">Policy Tree</h2>
+      <div class="panel-header-main">
+        <h2 class="panel__heading">Policy Tree</h2>
+        <span id="tree-source-badge" class="badge badge--info">Local Disk</span>
+      </div>
       <div class="panel-header-actions">
         <button id="btn-refresh-tree" class="btn btn--secondary" type="button">Refresh</button>
         <button
@@ -55,7 +82,10 @@
   <section class="panel panel--centre" aria-label="Raw File Editor">
     <div class="inventory-shell" aria-label="API-first policy inventory">
       <div class="panel-header-row">
-        <h2 class="panel__heading">Policy Inventory (API-first)</h2>
+        <div class="panel-header-main">
+          <h2 class="panel__heading">Policy Inventory (API-first)</h2>
+          <span id="inventory-source-badge" class="badge badge--muted">Server API</span>
+        </div>
         <button id="btn-refresh-inventory" class="btn btn--secondary" type="button">Refresh Inventory</button>
       </div>
       <div class="inventory-filters">
@@ -83,6 +113,7 @@
     <div class="panel-header-row">
       <div class="panel-header-main">
         <h2 class="panel__heading">Raw Editor</h2>
+        <span id="editor-source-badge" class="badge badge--muted">No selection</span>
         <button id="btn-expand-tree" class="btn btn--secondary btn--sm" type="button">Show Tree</button>
       </div>
       <span id="editor-path" class="badge badge--muted">No file selected</span>
@@ -103,7 +134,10 @@
 
     <section class="activation-shell" aria-label="Activation scope controls">
       <div class="activation-shell__header">
-        <h3 class="panel__heading">Activation Scope</h3>
+        <div class="panel-header-main">
+          <h3 class="panel__heading">Activation Scope</h3>
+          <span id="activation-source-badge" class="badge badge--muted">Server API</span>
+        </div>
         <label class="activation-toggle" for="activation-enable">
           <input id="activation-enable" type="checkbox" />
           <span>Activate after save</span>

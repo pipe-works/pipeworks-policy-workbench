@@ -56,6 +56,49 @@ class PolicyFileUpdateResponse(BaseModel):
     bytes_written: int
 
 
+class RuntimeModeOptionResponse(BaseModel):
+    """One source-mode option available to the workbench UI."""
+
+    mode_key: str
+    label: str
+    source_kind: str
+    default_server_url: str | None
+    active_server_url: str | None
+    url_editable: bool
+
+
+class RuntimeModeResponse(BaseModel):
+    """Current runtime source mode and all selectable mode options."""
+
+    mode_key: str
+    source_kind: str
+    active_server_url: str | None
+    options: list[RuntimeModeOptionResponse]
+
+
+class RuntimeModeRequest(BaseModel):
+    """Request payload to switch runtime source mode."""
+
+    mode_key: str = Field(min_length=1)
+    server_url: str | None = None
+
+
+class RuntimeAuthResponse(BaseModel):
+    """Runtime auth probe result for server-backed policy operations.
+
+    ``access_granted`` is ``True`` only when the active session can call
+    mud-server policy APIs, which are restricted to admin/superuser roles.
+    """
+
+    mode_key: str
+    source_kind: str
+    active_server_url: str | None
+    session_present: bool
+    access_granted: bool
+    status: str
+    detail: str
+
+
 class PolicySaveRequest(BaseModel):
     """Request payload for Phase 2 API-only policy save operations."""
 

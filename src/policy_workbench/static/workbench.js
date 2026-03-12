@@ -1,6 +1,17 @@
 const dom = {
   workbenchGrid: document.getElementById("workbench-grid"),
   panelTree: document.getElementById("panel-tree"),
+  runtimeModeBadge: document.getElementById("runtime-mode-badge"),
+  runtimeAuthBadge: document.getElementById("runtime-auth-badge"),
+  runtimeModeSelect: document.getElementById("runtime-mode-select"),
+  runtimeModeUrl: document.getElementById("runtime-mode-url"),
+  runtimeModeApply: document.getElementById("runtime-mode-apply"),
+  runtimeModeUrlLabel: document.getElementById("runtime-mode-url-label"),
+  runtimeAuthLabel: document.getElementById("runtime-auth-label"),
+  treeSourceBadge: document.getElementById("tree-source-badge"),
+  inventorySourceBadge: document.getElementById("inventory-source-badge"),
+  editorSourceBadge: document.getElementById("editor-source-badge"),
+  activationSourceBadge: document.getElementById("activation-source-badge"),
   treeSummaryDirectories: document.getElementById("tree-summary-directories"),
   treeSummaryFiles: document.getElementById("tree-summary-files"),
   treeList: document.getElementById("tree-list"),
@@ -89,6 +100,9 @@ const state = {
   treeCollapsed: false,
   activeSyncStep: "build",
   latestActivationPayload: null,
+  runtimeMode: null,
+  runtimeAuth: null,
+  runtimeModeOptionsByKey: new Map(),
 };
 
 const THEME_STORAGE_KEY = "ppw-theme";
@@ -107,11 +121,366 @@ function setStatus(message) {
   dom.statusText.textContent = message;
 }
 
+function runtimeModeLabel() {
+  if (!state.runtimeMode) {
+    return "Unknown";
+  }
+  const option = state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key);
+  return option?.label || state.runtimeMode.mode_key;
+}
+
+function runtimeSourceKind() {
+  return state.runtimeMode?.source_kind || "";
+}
+
+function isServerApiMode() {
+  return runtimeSourceKind() === "server_api";
+}
+
+function isServerAuthorized() {
+  return isServerApiMode() && Boolean(state.runtimeAuth?.access_granted);
+}
+
+function activeRuntimeModeOption() {
+  if (!state.runtimeMode) {
+    return null;
+  }
+  return state.runtimeModeOptionsByKey.get(state.runtimeMode.mode_key) || null;
+}
+
+function runtimeAuthStatus() {
+  return String(state.runtimeAuth?.status || "");
+}
+
+function activeRuntimeServerUrl() {
+  return (state.runtimeMode?.active_server_url || "").trim();
+}
+
+function setRuntimeModeBadge() {
+  if (!dom.runtimeModeBadge) {
+    return;
+  }
+
+  const label = runtimeModeLabel();
+  dom.runtimeModeBadge.classList.remove("badge--muted", "badge--active", "badge--info");
+  if (runtimeSourceKind() === "local_disk") {
+    dom.runtimeModeBadge.classList.add("badge--muted");
+    dom.runtimeModeBadge.textContent = `${label} · Local Disk`;
+    return;
+  }
+
+  if (state.runtimeMode?.mode_key === "server_dev") {
+    dom.runtimeModeBadge.classList.add("badge--active");
+  } else {
+    dom.runtimeModeBadge.classList.add("badge--info");
+  }
+  dom.runtimeModeBadge.textContent = `${label} · Server API`;
+}
+
+function setRuntimeAuthIndicators() {
+  if (dom.runtimeAuthBadge) {
+    dom.runtimeAuthBadge.classList.remove(
+      "badge--muted",
+      "badge--active",
+      "badge--info",
+      "badge--warn",
+      "badge--err"
+    );
+
+    const authStatus = runtimeAuthStatus();
+    if (!authStatus) {
+      dom.runtimeAuthBadge.classList.add("badge--muted");
+      dom.runtimeAuthBadge.textContent = "Auth Pending";
+    } else if (authStatus === "authorized") {
+      dom.runtimeAuthBadge.classList.add("badge--active");
+      dom.runtimeAuthBadge.textContent = "Auth OK";
+    } else if (authStatus === "offline") {
+      dom.runtimeAuthBadge.classList.add("badge--muted");
+      dom.runtimeAuthBadge.textContent = "Auth Offline";
+    } else if (authStatus === "missing_session") {
+      dom.runtimeAuthBadge.classList.add("badge--warn");
+      dom.runtimeAuthBadge.textContent = "Session Missing";
+    } else if (authStatus === "forbidden") {
+      dom.runtimeAuthBadge.classList.add("badge--err");
+      dom.runtimeAuthBadge.textContent = "Role Denied";
+    } else if (authStatus === "unauthenticated") {
+      dom.runtimeAuthBadge.classList.add("badge--warn");
+      dom.runtimeAuthBadge.textContent = "Session Invalid";
+    } else {
+      dom.runtimeAuthBadge.classList.add("badge--err");
+      dom.runtimeAuthBadge.textContent = "Auth Error";
+    }
+  }
+
+  if (!dom.runtimeAuthLabel) {
+    return;
+  }
+
+  if (!state.runtimeAuth) {
+    dom.runtimeAuthLabel.textContent = "Checking session access...";
+    return;
+  }
+
+  dom.runtimeAuthLabel.textContent = state.runtimeAuth.detail || "Runtime auth status unavailable.";
+}
+
+function setSourceBadges() {
+  if (dom.treeSourceBadge) {
+    dom.treeSourceBadge.className = "badge badge--info";
+    dom.treeSourceBadge.textContent = "Local Disk";
+    dom.treeSourceBadge.title = "Policy tree and raw file reads are sourced from local disk.";
+  }
+
+  const serverEnabled = isServerApiMode();
+  const modeLabel = runtimeModeLabel();
+  const activeUrl = activeRuntimeServerUrl();
+  const serverBadgeText = serverEnabled
+    ? `${modeLabel}${activeUrl ? ` · ${activeUrl}` : ""}`
+    : "Offline (server disabled)";
+  const serverBadgeClass = serverEnabled ? "badge badge--info" : "badge badge--muted";
+
+  if (dom.inventorySourceBadge) {
+    const canReadServer = isServerAuthorized();
+    const lockedBadgeClass = serverEnabled ? "badge badge--warn" : serverBadgeClass;
+    dom.inventorySourceBadge.className = canReadServer ? "badge badge--info" : lockedBadgeClass;
+    dom.inventorySourceBadge.textContent = canReadServer ? serverBadgeText : "Server locked";
+    dom.inventorySourceBadge.title = canReadServer
+      ? "Policy inventory and object detail are read from mud-server policy APIs."
+      : "Inventory requires an admin/superuser mud-server session.";
+  }
+
+  if (dom.activationSourceBadge) {
+    const canReadServer = isServerAuthorized();
+    const lockedBadgeClass = serverEnabled ? "badge badge--warn" : serverBadgeClass;
+    dom.activationSourceBadge.className = canReadServer ? "badge badge--info" : lockedBadgeClass;
+    dom.activationSourceBadge.textContent = canReadServer ? serverBadgeText : "Server locked";
+    dom.activationSourceBadge.title = canReadServer
+      ? "Activation mapping is read from mud-server policy activation APIs."
+      : "Activation mapping requires an admin/superuser mud-server session.";
+  }
+
+  if (!dom.editorSourceBadge) {
+    return;
+  }
+  if (state.selectedPolicyRecord) {
+    dom.editorSourceBadge.className = "badge badge--info";
+    dom.editorSourceBadge.textContent = "Server API";
+    dom.editorSourceBadge.title = "Editor content loaded from mud-server policy object content.";
+    return;
+  }
+  if (state.selectedPath) {
+    dom.editorSourceBadge.className = "badge badge--active";
+    dom.editorSourceBadge.textContent = "Local Disk";
+    dom.editorSourceBadge.title = "Editor content loaded from local file tree.";
+    return;
+  }
+  dom.editorSourceBadge.className = "badge badge--muted";
+  dom.editorSourceBadge.textContent = "No selection";
+  dom.editorSourceBadge.title = "Select a policy file or policy object.";
+}
+
+function updateStatusSourceLine() {
+  if (!dom.statusSource) {
+    return;
+  }
+  const modeLabel = runtimeModeLabel();
+  const sourceRoot = state.sourceRoot || "--";
+  const authStatus = runtimeAuthStatus() || "pending";
+  dom.statusSource.textContent = `mode: ${modeLabel} · auth: ${authStatus} · tree: ${sourceRoot}`;
+  dom.statusSource.title = `mode=${modeLabel}\nauth=${authStatus}\ntree=${sourceRoot}`;
+}
+
+function applyRuntimeModeControls() {
+  if (!dom.runtimeModeSelect || !state.runtimeMode) {
+    return;
+  }
+
+  dom.runtimeModeOptionsByKey = new Map();
+  dom.runtimeModeSelect.innerHTML = "";
+  for (const option of state.runtimeMode.options || []) {
+    dom.runtimeModeOptionsByKey.set(option.mode_key, option);
+    const optionElement = document.createElement("option");
+    optionElement.value = option.mode_key;
+    optionElement.textContent = option.label;
+    dom.runtimeModeSelect.appendChild(optionElement);
+  }
+
+  if (dom.runtimeModeSelect.querySelector(`option[value="${state.runtimeMode.mode_key}"]`)) {
+    dom.runtimeModeSelect.value = state.runtimeMode.mode_key;
+  }
+
+  const activeOption = activeRuntimeModeOption();
+  const editableServerUrl = Boolean(activeOption?.url_editable);
+  const activeServerUrl = activeRuntimeServerUrl();
+  const defaultServerUrl = (activeOption?.default_server_url || "").trim();
+
+  if (dom.runtimeModeUrl) {
+    dom.runtimeModeUrl.classList.toggle("hidden", !editableServerUrl);
+    dom.runtimeModeUrl.value = activeServerUrl || defaultServerUrl;
+  }
+  if (dom.runtimeModeApply) {
+    dom.runtimeModeApply.classList.toggle("hidden", !editableServerUrl);
+    dom.runtimeModeApply.disabled = !editableServerUrl || !(dom.runtimeModeUrl?.value || "").trim();
+  }
+  if (dom.runtimeModeUrlLabel) {
+    if (!isServerApiMode()) {
+      dom.runtimeModeUrlLabel.textContent = "Offline mode active. Server APIs are disabled.";
+    } else if (activeServerUrl) {
+      dom.runtimeModeUrlLabel.textContent = `Active server URL: ${activeServerUrl}`;
+    } else if (defaultServerUrl) {
+      dom.runtimeModeUrlLabel.textContent = `Default server URL: ${defaultServerUrl}`;
+    } else {
+      dom.runtimeModeUrlLabel.textContent = "No server URL configured. Provide a URL then apply.";
+    }
+  }
+
+  setRuntimeModeBadge();
+  setRuntimeAuthIndicators();
+  setSourceBadges();
+  updateStatusSourceLine();
+}
+
+function setServerFeatureAvailability() {
+  const serverEnabled = isServerApiMode();
+  const serverAuthorized = isServerAuthorized();
+
+  if (dom.btnRefreshInventory) {
+    dom.btnRefreshInventory.disabled = !serverAuthorized;
+  }
+  if (dom.inventoryPolicyType) {
+    dom.inventoryPolicyType.disabled = !serverAuthorized;
+  }
+  if (dom.inventoryNamespace) {
+    dom.inventoryNamespace.disabled = !serverAuthorized;
+  }
+  if (dom.inventoryStatus) {
+    dom.inventoryStatus.disabled = !serverAuthorized;
+  }
+  if (dom.btnRefreshActivation) {
+    dom.btnRefreshActivation.disabled = !serverAuthorized;
+  }
+  if (dom.activationEnable) {
+    dom.activationEnable.disabled = !serverAuthorized;
+    if (!serverAuthorized) {
+      dom.activationEnable.checked = false;
+    }
+  }
+  if (dom.activationWorldId) {
+    dom.activationWorldId.disabled = !serverAuthorized;
+  }
+  if (dom.activationClientProfile) {
+    dom.activationClientProfile.disabled = !serverAuthorized;
+  }
+
+  const canSave = serverAuthorized
+    && Boolean(state.selectedArtifact?.is_authorable || state.selectedPolicyRecord);
+  if (dom.btnSaveFile) {
+    dom.btnSaveFile.disabled = !canSave;
+  }
+}
+
+function applyRuntimeModeState(runtimeModePayload) {
+  state.runtimeMode = runtimeModePayload;
+  applyRuntimeModeControls();
+  setServerFeatureAvailability();
+}
+
+function applyRuntimeAuthState(runtimeAuthPayload) {
+  state.runtimeAuth = runtimeAuthPayload;
+  setRuntimeAuthIndicators();
+  setSourceBadges();
+  updateStatusSourceLine();
+  setServerFeatureAvailability();
+}
+
+async function getRuntimeModeState() {
+  const payload = await fetchJson("/api/runtime-mode");
+  applyRuntimeModeState(payload);
+}
+
+async function refreshRuntimeAuthState({ silent = false } = {}) {
+  try {
+    const payload = await fetchJson("/api/runtime-auth");
+    applyRuntimeAuthState(payload);
+    if (!silent && payload.status === "authorized") {
+      setStatus("Session authorized (admin/superuser).");
+    }
+    return payload;
+  } catch (error) {
+    if (!silent) {
+      setStatus(`Runtime auth check failed: ${error.message}`);
+    }
+    state.runtimeAuth = {
+      status: "error",
+      access_granted: false,
+      detail: String(error.message || error),
+    };
+    setRuntimeAuthIndicators();
+    setServerFeatureAvailability();
+    return null;
+  }
+}
+
+function selectedRuntimeModeServerUrl(modeKey) {
+  const option = state.runtimeModeOptionsByKey.get(modeKey) || null;
+  if (!option || option.source_kind !== "server_api") {
+    return "";
+  }
+
+  const typedUrl = (dom.runtimeModeUrl?.value || "").trim();
+  if (typedUrl) {
+    return typedUrl;
+  }
+  const activeServerUrl = (option.active_server_url || "").trim();
+  if (activeServerUrl) {
+    return activeServerUrl;
+  }
+  return (option.default_server_url || "").trim();
+}
+
+async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
+  const requestPayload = { mode_key: modeKey };
+  const serverUrl = explicitServerUrl !== null
+    ? String(explicitServerUrl || "").trim()
+    : selectedRuntimeModeServerUrl(modeKey);
+  if (serverUrl) {
+    requestPayload.server_url = serverUrl;
+  }
+
+  const payload = await fetchJson("/api/runtime-mode", {
+    method: "POST",
+    body: JSON.stringify(requestPayload),
+  });
+  applyRuntimeModeState(payload);
+  const runtimeAuth = await refreshRuntimeAuthState({ silent: true });
+
+  if (isServerAuthorized()) {
+    await refreshPolicyInventory();
+    await refreshActivationScope({ silent: true });
+  } else {
+    state.inventoryItems = [];
+    renderPolicyInventory([]);
+    if (runtimeAuth?.status === "forbidden") {
+      renderActivationMessage("Server mode connected, but session role is not admin/superuser.");
+    } else if (runtimeAuth?.status === "missing_session") {
+      renderActivationMessage("Server mode connected, but no session id is configured.");
+    } else if (runtimeAuth?.status === "unauthenticated") {
+      renderActivationMessage("Server mode connected, but session is invalid or expired.");
+    } else {
+      renderActivationMessage(
+        "Offline mode active. Switch to server mode to view activation mappings."
+      );
+    }
+  }
+}
+
 function setEditorReadOnlyMode(isReadOnly) {
   dom.fileEditor.readOnly = isReadOnly;
   dom.fileEditor.classList.toggle("is-readonly", isReadOnly);
-  dom.btnSaveFile.disabled = isReadOnly;
-  dom.btnReloadFile.disabled = isReadOnly;
+  if (dom.btnReloadFile) {
+    dom.btnReloadFile.disabled = false;
+  }
+  setServerFeatureAvailability();
 }
 
 function setTreeCollapsed(isCollapsed) {
@@ -581,6 +950,8 @@ function setEditorFromPolicyRecord(policy) {
   dom.editorPath.title =
     `${policy.policy_id}:${policy.variant}\nstatus=${policy.status} version=${policy.policy_version}`;
   dom.fileEditor.value = buildRawEditorContentFromPolicy(policy);
+  setSourceBadges();
+  setServerFeatureAvailability();
 }
 
 function buildSpeciesYamlFromText(textValue) {
@@ -619,7 +990,13 @@ function renderPolicyInventory(items) {
   if (!items.length) {
     const item = document.createElement("li");
     item.className = "report-item report-item--info";
-    item.textContent = "No policies matched current filters.";
+    if (!isServerApiMode()) {
+      item.textContent = "Offline mode active. Inventory requires mud-server API mode.";
+    } else if (!isServerAuthorized()) {
+      item.textContent = "Server mode connected, but admin/superuser session is required.";
+    } else {
+      item.textContent = "No policies matched current filters.";
+    }
     dom.inventoryList.appendChild(item);
     return;
   }
@@ -662,6 +1039,16 @@ function renderPolicyInventory(items) {
 }
 
 async function refreshPolicyInventory() {
+  if (!isServerApiMode()) {
+    renderPolicyInventory([]);
+    setStatus("Policy inventory unavailable in offline mode.");
+    return;
+  }
+  if (!isServerAuthorized()) {
+    renderPolicyInventory([]);
+    setStatus("Policy inventory requires an admin/superuser session.");
+    return;
+  }
   setStatus("Loading API-first policy inventory...");
   try {
     const query = buildPolicyInventoryQueryString();
@@ -675,6 +1062,14 @@ async function refreshPolicyInventory() {
 }
 
 async function loadPolicyObject(policyId, variant = "") {
+  if (!isServerApiMode()) {
+    setStatus("Cannot load policy object while offline mode is active.");
+    return;
+  }
+  if (!isServerAuthorized()) {
+    setStatus("Cannot load policy object: admin/superuser session required.");
+    return;
+  }
   setStatus(`Loading policy object ${policyId}:${variant || "latest"}...`);
   try {
     const query = new URLSearchParams();
@@ -767,6 +1162,21 @@ function renderActivationScopePayload(payload) {
 }
 
 async function refreshActivationScope({ silent = false } = {}) {
+  if (!isServerApiMode()) {
+    renderActivationMessage("Offline mode active. Switch to a server mode to view scope mappings.");
+    if (!silent) {
+      setStatus("Activation mapping unavailable in offline mode.");
+    }
+    return null;
+  }
+  if (!isServerAuthorized()) {
+    renderActivationMessage("Activation mapping requires an admin/superuser session.");
+    if (!silent) {
+      setStatus("Activation mapping unavailable: admin/superuser session required.");
+    }
+    return null;
+  }
+
   const { worldId, scope } = readActivationScopeInputs();
   updateActivationScopeLabel();
   if (!worldId) {
@@ -806,10 +1216,8 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
   state.directoriesCount = directoriesCount;
   dom.treeSummaryDirectories.textContent = `${directoriesCount}`;
   dom.treeSummaryFiles.textContent = `${artifacts.length}`;
-  if (dom.statusSource) {
-    dom.statusSource.textContent = `source: ${sourceRoot}`;
-    dom.statusSource.title = sourceRoot;
-  }
+  updateStatusSourceLine();
+  setSourceBadges();
 
   dom.treeList.innerHTML = "";
   if (!artifacts.length) {
@@ -1584,6 +1992,8 @@ async function loadFile(relativePath, artifact = null) {
   const policyLabel = selectedPolicyLabel(state.selectedArtifact);
   dom.editorPath.textContent = `${relativePath} · ${policyLabel}`;
   dom.editorPath.title = `${relativePath}\n${policyLabel}`;
+  setSourceBadges();
+  setServerFeatureAvailability();
   setStatus(`Loading ${relativePath}...`);
 
   try {
@@ -1593,10 +2003,12 @@ async function loadFile(relativePath, artifact = null) {
     dom.fileEditor.value = payload.content;
     if (!state.selectedArtifact || !state.selectedArtifact.is_authorable) {
       setEditorReadOnlyMode(true);
+      setSourceBadges();
       setStatus(`Loaded ${relativePath} in read-only mode (not mapped to policy selector).`);
       return;
     }
     renderTree(state.fileIndex, state.sourceRoot, state.directoriesCount);
+    setSourceBadges();
     setStatus(`Loaded ${relativePath}.`);
   } catch (error) {
     setStatus(`File load failed: ${error.message}`);
@@ -1604,6 +2016,14 @@ async function loadFile(relativePath, artifact = null) {
 }
 
 async function saveCurrentFile() {
+  if (!isServerApiMode()) {
+    setStatus("Save unavailable in offline mode. Switch to a mud-server mode first.");
+    return;
+  }
+  if (!isServerAuthorized()) {
+    setStatus("Save unavailable: admin/superuser mud-server session required.");
+    return;
+  }
   if (!state.selectedArtifact || !state.selectedArtifact.is_authorable) {
     setStatus("Select an authorable policy object or mapped file before saving.");
     return;
@@ -1743,6 +2163,12 @@ async function init() {
   wireSyncTabs();
   setActiveSyncStep("build");
   setTreeCollapsed(false);
+  try {
+    await getRuntimeModeState();
+    await refreshRuntimeAuthState({ silent: true });
+  } catch (error) {
+    setStatus(`Runtime mode load failed: ${error.message}`);
+  }
   updateActivationScopeLabel();
   renderActivationMessage("Select a scope and click Refresh Scope Mapping.");
   setHashButtonBusy(false);
@@ -1788,6 +2214,57 @@ async function init() {
   if (dom.btnExpandTree) {
     dom.btnExpandTree.addEventListener("click", () => {
       setTreeCollapsed(false);
+    });
+  }
+
+  if (dom.runtimeModeSelect) {
+    dom.runtimeModeSelect.addEventListener("change", async () => {
+      const nextMode = dom.runtimeModeSelect.value;
+      try {
+        await setRuntimeMode(nextMode);
+        setStatus(`Runtime mode switched to ${runtimeModeLabel()}.`);
+      } catch (error) {
+        setStatus(`Runtime mode switch failed: ${error.message}`);
+      }
+    });
+  }
+  if (dom.runtimeModeUrl) {
+    dom.runtimeModeUrl.addEventListener("input", () => {
+      if (dom.runtimeModeApply) {
+        dom.runtimeModeApply.disabled = !dom.runtimeModeUrl.value.trim();
+      }
+    });
+    dom.runtimeModeUrl.addEventListener("keydown", async (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      if (!dom.runtimeModeSelect) {
+        return;
+      }
+      try {
+        await setRuntimeMode(dom.runtimeModeSelect.value, {
+          explicitServerUrl: dom.runtimeModeUrl.value,
+        });
+        setStatus(`Runtime mode URL updated for ${runtimeModeLabel()}.`);
+      } catch (error) {
+        setStatus(`Runtime mode URL update failed: ${error.message}`);
+      }
+    });
+  }
+  if (dom.runtimeModeApply) {
+    dom.runtimeModeApply.addEventListener("click", async () => {
+      if (!dom.runtimeModeSelect || !dom.runtimeModeUrl) {
+        return;
+      }
+      try {
+        await setRuntimeMode(dom.runtimeModeSelect.value, {
+          explicitServerUrl: dom.runtimeModeUrl.value,
+        });
+        setStatus(`Runtime mode URL updated for ${runtimeModeLabel()}.`);
+      } catch (error) {
+        setStatus(`Runtime mode URL update failed: ${error.message}`);
+      }
     });
   }
 
@@ -1865,8 +2342,22 @@ async function init() {
   dom.btnApplySync.addEventListener("click", applySyncPlan);
 
   await refreshHashStatus();
-  await refreshPolicyInventory();
   await loadTree();
+  if (isServerAuthorized()) {
+    await refreshPolicyInventory();
+    await refreshActivationScope({ silent: true });
+  } else {
+    renderPolicyInventory([]);
+    if (runtimeAuthStatus() === "forbidden") {
+      renderActivationMessage("Server mode connected, but session role is not admin/superuser.");
+    } else if (runtimeAuthStatus() === "missing_session") {
+      renderActivationMessage("Server mode connected, but no session id is configured.");
+    } else if (runtimeAuthStatus() === "unauthenticated") {
+      renderActivationMessage("Server mode connected, but session is invalid or expired.");
+    } else {
+      renderActivationMessage("Offline mode active. Switch to server mode to view scope mappings.");
+    }
+  }
   await runValidation();
   await buildSyncPlan();
 }
