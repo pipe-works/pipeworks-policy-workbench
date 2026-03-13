@@ -2,28 +2,13 @@ import { THEME_STORAGE_KEY } from "./constants.js";
 import { dom } from "./dom.js";
 import { configureRuntime } from "./runtime.js";
 import { configureInventory } from "./inventory.js";
-import { configureTree } from "./tree.js";
-import { configureHash } from "./hash.js";
 import { configureValidation } from "./validation.js";
-import { configureSyncCompare } from "./sync_compare.js";
-import { configureSyncPlan, renderUnchangedBreakdown } from "./sync_plan.js";
 import { configureEditorActions } from "./editor_actions.js";
 import { configureRuntimeSession } from "./runtime_session.js";
 import { configureBoot, initializeWorkbench } from "./boot.js";
 
 function setStatus(message) {
   dom.statusText.textContent = message;
-}
-
-function formatLocalDateTime(dateValue) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).format(dateValue);
 }
 
 function wireThemeToggle() {
@@ -81,20 +66,7 @@ async function fetchJson(url, options = {}) {
 configureRuntime({ fetchJson, setStatus });
 configureRuntimeSession({ fetchJson, setStatus });
 configureInventory({ fetchJson, setStatus });
-configureTree({ fetchJson, setStatus });
-configureSyncCompare({ fetchJson, setStatus });
-configureSyncPlan({
-  fetchJson,
-  setStatus,
-  formatLocalDateTime,
-});
 configureEditorActions({ fetchJson, setStatus });
-configureHash({
-  fetchJson,
-  setStatus,
-  formatLocalDateTime,
-  renderUnchangedBreakdown,
-});
 configureValidation({ fetchJson, setStatus });
 configureBoot({ setStatus });
 

@@ -99,6 +99,9 @@ function renderTree(artifacts, sourceRoot, directoriesCount) {
   }
   updateStatusSourceLine();
   setSourceBadges();
+  if (!dom.treeList) {
+    return;
+  }
 
   dom.treeList.innerHTML = "";
   if (!artifacts.length) {

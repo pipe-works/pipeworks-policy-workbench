@@ -1,4 +1,10 @@
-# Sync Contract v1
+# Sync Contract v1 (Historical Reference)
+
+> Status (March 13, 2026): Deprecated for the Policy Workbench web app.
+> Sync Impact UI and `/api/hash-status`, `/api/sync-plan`, `/api/sync-compare`,
+> `/api/sync-apply` routes were removed to keep Workbench focused on canonical
+> mud-server API authoring only.
+> Current operator guidance lives in `docs/OPERATOR_GUIDE_API_ONLY.md`.
 
 ## Canonical Contract
 

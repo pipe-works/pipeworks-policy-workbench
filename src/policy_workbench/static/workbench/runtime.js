@@ -119,26 +119,8 @@ function setRuntimeAuthIndicators() {
 }
 
 export function setSourceBadges() {
-  const modeKey = String(state.runtimeMode?.mode_key || "");
   const modeLabel = runtimeModeLabel();
   const activeUrl = activeRuntimeServerUrl();
-
-  if (dom.treeSourceBadge) {
-    const treeModeLabel = modeKey === "server_prod" ? "Production" : "Development";
-    if (isServerAuthorized()) {
-      dom.treeSourceBadge.className = "badge badge--info";
-      dom.treeSourceBadge.textContent = `${treeModeLabel}: ${activeUrl || "--"}`;
-      dom.treeSourceBadge.title = activeUrl
-        ? `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel} at ${activeUrl}.`
-        : `Policy tree and raw file reads stay local-disk. Inventory/activation/save APIs use ${modeLabel}.`;
-    } else {
-      dom.treeSourceBadge.className = "badge badge--warn";
-      dom.treeSourceBadge.textContent = `${treeModeLabel}: Login required`;
-      dom.treeSourceBadge.title = activeUrl
-        ? `Sign in as admin/superuser to activate ${treeModeLabel} server API features at ${activeUrl}.`
-        : `Sign in as admin/superuser to activate ${treeModeLabel} server API features.`;
-    }
-  }
 
   const serverBadgeText = `${modeLabel}${activeUrl ? ` · ${activeUrl}` : ""}`;
 
@@ -171,15 +153,9 @@ export function setSourceBadges() {
     dom.editorSourceBadge.title = "Editor content loaded from mud-server policy object content.";
     return;
   }
-  if (state.selectedPath) {
-    dom.editorSourceBadge.className = "badge badge--active";
-    dom.editorSourceBadge.textContent = "Local Disk";
-    dom.editorSourceBadge.title = "Editor content loaded from local file tree.";
-    return;
-  }
   dom.editorSourceBadge.className = "badge badge--muted";
   dom.editorSourceBadge.textContent = "No selection";
-  dom.editorSourceBadge.title = "Select a policy file or policy object.";
+  dom.editorSourceBadge.title = "Select a policy object from inventory.";
 }
 
 export function updateStatusSourceLine() {
@@ -187,10 +163,9 @@ export function updateStatusSourceLine() {
     return;
   }
   const modeLabel = runtimeModeLabel();
-  const sourceRoot = state.sourceRoot || "--";
   const authStatus = runtimeAuthStatus() || "pending";
-  dom.statusSource.textContent = `mode: ${modeLabel} · auth: ${authStatus} · tree: ${sourceRoot}`;
-  dom.statusSource.title = `mode=${modeLabel}\nauth=${authStatus}\ntree=${sourceRoot}`;
+  dom.statusSource.textContent = `mode: ${modeLabel} · auth: ${authStatus}`;
+  dom.statusSource.title = `mode=${modeLabel}\nauth=${authStatus}`;
 }
 
 export function applyRuntimeModeControls() {

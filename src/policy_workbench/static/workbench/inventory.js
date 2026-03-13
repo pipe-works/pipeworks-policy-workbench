@@ -98,6 +98,7 @@ async function refreshPolicyTypeOptions({ silent = true } = {}) {
       _setStatus(payload.detail);
     }
   } catch (error) {
+    renderPolicyTypeOptions({ items: [] });
     if (!silent) {
       _setStatus(`Policy type options load failed: ${error.message}`);
     }
@@ -119,6 +120,7 @@ export async function refreshPolicyNamespaceOptions({ silent = true } = {}) {
       _setStatus(payload.detail);
     }
   } catch (error) {
+    renderPolicyNamespaceOptions({ items: [] });
     if (!silent) {
       _setStatus(`Policy namespace options load failed: ${error.message}`);
     }
@@ -128,12 +130,13 @@ export async function refreshPolicyNamespaceOptions({ silent = true } = {}) {
 async function refreshPolicyStatusOptions({ silent = true } = {}) {
   requireInventoryDeps();
   try {
-    const payload = await _fetchJson("/api/policy-statuses");
+    const payload = await _fetchJson(sessionScopedUrl("/api/policy-statuses"));
     renderPolicyStatusOptions(payload);
     if (!silent && payload?.detail) {
       _setStatus(payload.detail);
     }
   } catch (error) {
+    renderPolicyStatusOptions({ items: [] });
     if (!silent) {
       _setStatus(`Policy status options load failed: ${error.message}`);
     }
@@ -176,7 +179,6 @@ function selectedPolicyKey() {
 
 function setEditorFromPolicyRecord(policy) {
   state.selectedPolicyRecord = policy;
-  state.selectedPath = "";
   state.selectedArtifact = {
     policy_type: policy.policy_type,
     namespace: policy.namespace,

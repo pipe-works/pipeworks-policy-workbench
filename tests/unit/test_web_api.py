@@ -15,7 +15,6 @@ from policy_workbench import web_services
 from policy_workbench.policy_authoring import PolicySaveResult
 from policy_workbench.web_app import create_web_app
 from policy_workbench.web_models import (
-    HashCanonicalResponse,
     PolicyActivationScopeResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
@@ -245,8 +244,8 @@ def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypat
         captured.update(kwargs)
         return PolicyTypeOptionsResponse(
             items=["species_block", "registry", "prompt"],
-            source="local_disk",
-            detail="Loaded canonical policy types from local source.",
+            source="mud_server_api",
+            detail="Policy types resolved from mud-server API inventory.",
         )
 
     monkeypatch.setattr(
@@ -259,7 +258,7 @@ def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypat
     assert response.status_code == 200
     payload = response.json()
     assert payload["items"] == ["species_block", "registry", "prompt"]
-    assert payload["source"] == "local_disk"
+    assert payload["source"] == "mud_server_api"
     assert captured == {
         "source_kind": "server_api",
         "active_server_url": "http://127.0.0.1:8000",
@@ -271,15 +270,15 @@ def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypat
 def test_policy_namespaces_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
     """Policy-namespaces endpoint should proxy namespace option helper payload."""
 
-    client, source_root, _ = _build_client(tmp_path)
+    client, _, _ = _build_client(tmp_path)
     captured: dict[str, object] = {}
 
     def _fake_policy_namespaces_builder(**kwargs):
         captured.update(kwargs)
         return PolicyTypeOptionsResponse(
             items=["image.blocks.species", "image.registries"],
-            source="local_disk",
-            detail="Loaded canonical namespaces from local policy files.",
+            source="mud_server_api",
+            detail="Namespaces resolved from mud-server API inventory.",
         )
 
     monkeypatch.setattr(
@@ -295,7 +294,6 @@ def test_policy_namespaces_endpoint_returns_service_payload(tmp_path: Path, monk
     assert response.status_code == 200
     payload = response.json()
     assert payload["items"] == ["image.blocks.species", "image.registries"]
-    assert captured["source_root"] == source_root
     assert captured["source_kind"] == "server_api"
     assert captured["active_server_url"] == "http://127.0.0.1:8000"
     assert captured["session_id_override"] == "s1"
@@ -313,8 +311,8 @@ def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkey
         captured.update(kwargs)
         return PolicyTypeOptionsResponse(
             items=["draft", "candidate", "active", "archived"],
-            source="local_disk",
-            detail="Loaded canonical policy statuses from local source.",
+            source="mud_server_api",
+            detail="Statuses resolved from mud-server API inventory.",
         )
 
     monkeypatch.setattr(
@@ -323,11 +321,48 @@ def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkey
         _fake_policy_statuses_builder,
     )
 
-    response = client.get("/api/policy-statuses")
+    response = client.get("/api/policy-statuses", params={"session_id": "s1"})
     assert response.status_code == 200
     payload = response.json()
     assert payload["items"] == ["draft", "candidate", "active", "archived"]
-    assert captured == {"source_kind": "server_api"}
+    assert captured == {
+        "source_kind": "server_api",
+        "active_server_url": "http://127.0.0.1:8000",
+        "session_id_override": "s1",
+        "base_url_override": "http://127.0.0.1:8000",
+    }
+
+
+def test_policy_types_endpoint_maps_auth_error_to_403(tmp_path: Path, monkeypatch) -> None:
+    """Policy-types endpoint should map role-denied builder failures to HTTP 403."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_type_options_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("forbidden: Policy API requires admin or superuser role.")
+        ),
+    )
+    response = client.get("/api/policy-types", params={"session_id": "s1"})
+    assert response.status_code == 403
+    assert "admin or superuser role" in response.json()["detail"]
+
+
+def test_policy_statuses_endpoint_maps_missing_session_to_400(tmp_path: Path, monkeypatch) -> None:
+    """Policy-statuses endpoint should map runtime/session config failures to HTTP 400."""
+
+    client, _, _ = _build_client(tmp_path)
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_status_options_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("Mud API session id is required (PW_POLICY_MUD_SESSION_ID).")
+        ),
+    )
+    response = client.get("/api/policy-statuses")
+    assert response.status_code == 400
+    assert "session id is required" in response.json()["detail"]
 
 
 def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
@@ -440,6 +475,42 @@ def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path)
     )
     assert unsupported_write_response.status_code == 410
     assert "Direct file writes are disabled" in unsupported_write_response.json()["detail"]
+
+
+def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> None:
+    """Legacy ``root`` and ``map_path`` query overrides should fail closed."""
+
+    client, _, _ = _build_client(tmp_path)
+
+    tree_response = client.get("/api/tree", params={"root": "/tmp/override"})
+    assert tree_response.status_code == 400
+    assert "Legacy source override query parameters are disabled" in tree_response.json()["detail"]
+    assert "root" in tree_response.json()["detail"]
+
+    file_response = client.get(
+        "/api/file",
+        params={
+            "relative_path": "image/prompts/scene.txt",
+            "map_path": "/tmp/map.yaml",
+        },
+    )
+    assert file_response.status_code == 400
+    assert "Legacy source override query parameters are disabled" in file_response.json()["detail"]
+    assert "map_path" in file_response.json()["detail"]
+
+    validate_response = client.get("/api/validate", params={"map_path": "/tmp/map.yaml"})
+    assert validate_response.status_code == 400
+    assert "Legacy source override query parameters are disabled" in (
+        validate_response.json()["detail"]
+    )
+
+    write_response = client.put(
+        "/api/file",
+        params={"root": "/tmp/override"},
+        json={"relative_path": "image/prompts/scene.txt", "content": "edited prompt text"},
+    )
+    assert write_response.status_code == 400
+    assert "Legacy source override query parameters are disabled" in write_response.json()["detail"]
 
 
 def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(
@@ -812,133 +883,18 @@ def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
     assert payload["issues"] == []
 
 
-def test_hash_status_endpoint_returns_drift_counts_for_mismatched_target(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Hash status endpoint should report canonical drift and per-target counters."""
-
-    client, source_root, _ = _build_client(tmp_path)
-    source_entries = web_services._collect_local_policy_entries(source_root)
-    canonical_root_hash = web_services._compute_tree_hash(source_entries)
-    canonical_snapshot = HashCanonicalResponse(
-        hash_version="policy_tree_hash_v1",
-        canonical_root=str(source_root),
-        generated_at="2026-03-10T12:00:00Z",
-        file_count=len(source_entries),
-        root_hash=canonical_root_hash,
-        directories=[],
-    )
-    monkeypatch.setattr(
-        web_services,
-        "_fetch_canonical_hash_snapshot",
-        lambda _url: canonical_snapshot,
-    )
-
-    response = client.get("/api/hash-status")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "drift"
-    assert payload["canonical"]["root_hash"] == canonical_root_hash
-    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
-    assert payload["canonical_error"] is None
-    assert len(payload["targets"]) == 1
-    target = payload["targets"][0]
-    assert target["name"] == "mirror-target"
-    assert target["file_count"] == 3
-    assert target["matches_canonical"] is False
-    assert target["missing_count"] == 1
-    assert target["different_count"] == 1
-    assert target["target_only_count"] == 1
-
-
-def test_hash_status_endpoint_excludes_target_only_from_match_digest(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Target-only files should not force hash mismatch when canonical paths align."""
-
-    client, source_root, target_root = _build_client(tmp_path)
-    _write_text(target_root / "image" / "prompts" / "scene.txt", "new scene prompt")
-    _write_text(
-        target_root / "image" / "blocks" / "species" / "goblin_v1.yaml",
-        "text: |\n  A canonical goblin prompt.\n",
-    )
-
-    source_entries = web_services._collect_local_policy_entries(source_root)
-    canonical_root_hash = web_services._compute_tree_hash(source_entries)
-    canonical_snapshot = HashCanonicalResponse(
-        hash_version="policy_tree_hash_v1",
-        canonical_root=str(source_root),
-        generated_at="2026-03-10T12:00:00Z",
-        file_count=len(source_entries),
-        root_hash=canonical_root_hash,
-        directories=[],
-    )
-    monkeypatch.setattr(
-        web_services,
-        "_fetch_canonical_hash_snapshot",
-        lambda _url: canonical_snapshot,
-    )
-
-    response = client.get("/api/hash-status")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "ok"
-    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
-    assert payload["canonical_error"] is None
-    target = payload["targets"][0]
-    assert target["file_count"] == 4
-    assert target["matches_canonical"] is True
-    assert target["missing_count"] == 0
-    assert target["different_count"] == 0
-    assert target["target_only_count"] == 1
-
-
-def test_hash_status_endpoint_handles_canonical_unavailable(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Canonical fetch failure should return canonical_unavailable status, not HTTP failure."""
+def test_sync_impact_endpoints_are_removed_from_web_app(tmp_path: Path) -> None:
+    """Sync/Hash routes should be absent after Sync Impact removal from the web UI."""
 
     client, _, _ = _build_client(tmp_path)
-    monkeypatch.setattr(
-        web_services,
-        "_fetch_canonical_hash_snapshot",
-        lambda _url: (_ for _ in ()).throw(ValueError("canonical endpoint unavailable")),
+    assert client.get("/api/hash-status").status_code == 404
+    assert client.get("/api/sync-plan").status_code == 404
+    sync_compare_response = client.get(
+        "/api/sync-compare",
+        params={"relative_path": "image/prompts/scene.txt"},
     )
-
-    response = client.get("/api/hash-status")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "canonical_unavailable"
-    assert payload["canonical"] is None
-    assert payload["canonical_url"] == "http://127.0.0.1:8000/api/policy/hash-snapshot"
-    assert "canonical endpoint unavailable" in payload["canonical_error"]
-    assert payload["targets"][0]["file_count"] == 3
-    assert payload["targets"][0]["matches_canonical"] is None
-
-
-def test_hash_status_endpoint_returns_400_when_hash_status_builder_raises(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    """Hash-status API should convert service-layer errors into HTTP 400."""
-
-    client, _, _ = _build_client(tmp_path)
-    monkeypatch.setattr(
-        web_app_module,
-        "build_hash_status_payload",
-        lambda **_kwargs: (_ for _ in ()).throw(ValueError("hash status failure")),
-    )
-
-    response = client.get("/api/hash-status")
-
-    assert response.status_code == 400
-    assert "hash status failure" in response.json()["detail"]
+    assert sync_compare_response.status_code == 404
+    assert client.post("/api/sync-apply", json={"confirm": True}).status_code == 404
 
 
 def test_resolve_canonical_hash_snapshot_url_precedence_and_empty_guard(
@@ -1074,86 +1030,3 @@ def test_service_hash_helpers_use_ipc_helper_branches(monkeypatch) -> None:
         web_services._PolicyHashEntry(relative_path="image/prompts/other.txt", content_hash="h2"),
     ]
     assert web_services._compute_tree_hash(entries) == "tree::2"
-
-
-def test_sync_plan_and_apply_endpoints_drive_non_destructive_apply(tmp_path: Path) -> None:
-    """Sync APIs should classify actions and apply only create/update writes."""
-
-    client, source_root, target_root = _build_client(tmp_path)
-    _write_text(source_root / "image" / ".DS_Store", "ignored source metadata file")
-    _write_text(source_root / "image" / ".gitkeep", "")
-    _write_text(target_root / "image" / ".DS_Store", "ignored target metadata file")
-    _write_text(target_root / "image" / "README.md", "ignored markdown file")
-
-    plan_response = client.get("/api/sync-plan", params={"include_unchanged": False})
-    assert plan_response.status_code == 200
-    plan_payload = plan_response.json()
-    assert plan_payload["counts"] == {
-        "create": 1,
-        "update": 1,
-        "unchanged": 1,
-        "target_only": 1,
-    }
-    assert {action["action"] for action in plan_payload["actions"]} == {
-        "create",
-        "update",
-        "target_only",
-    }
-    assert all(
-        Path(action["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml", ".json"}
-        for action in plan_payload["actions"]
-    )
-
-    compare_response = client.get(
-        "/api/sync-compare",
-        params={
-            "relative_path": "image/prompts/scene.txt",
-            "focus_target": "mirror-target",
-        },
-    )
-    assert compare_response.status_code == 200
-    compare_payload = compare_response.json()
-    assert compare_payload["relative_path"] == "image/prompts/scene.txt"
-    assert compare_payload["focus_target"] == "mirror-target"
-    assert compare_payload["unique_variant_count"] >= 2
-
-    variants = compare_payload["variants"]
-    assert len(variants) == 2
-    source_variant = variants[0]
-    target_variant = variants[1]
-    assert source_variant["kind"] == "source"
-    assert source_variant["matches_source"] is True
-    assert target_variant["target"] == "mirror-target"
-    assert target_variant["action"] == "update"
-    assert target_variant["matches_source"] is False
-    assert source_variant["content"] == "new scene prompt"
-    assert target_variant["content"] == "old scene prompt"
-
-    denied_response = client.post("/api/sync-apply", json={"confirm": False})
-    assert denied_response.status_code == 400
-    assert denied_response.json()["detail"] == "Sync apply requires confirm=true"
-
-    apply_response = client.post("/api/sync-apply", json={"confirm": True})
-    assert apply_response.status_code == 200
-    assert apply_response.json() == {"created": 1, "updated": 1, "skipped": 2}
-
-    assert (target_root / "image" / "prompts" / "scene.txt").read_text(encoding="utf-8") == (
-        "new scene prompt"
-    )
-    assert (target_root / "image" / "blocks" / "species" / "goblin_v1.yaml").read_text(
-        encoding="utf-8"
-    ) == "text: |\n  A canonical goblin prompt.\n"
-    assert (target_root / "image" / "prompts" / "extra.txt").read_text(encoding="utf-8") == (
-        "target only"
-    )
-
-
-def test_sync_compare_endpoint_rejects_unsupported_file_extensions(tmp_path: Path) -> None:
-    """Sync compare should return HTTP 400 when the path is not editor-supported."""
-
-    client, _, _ = _build_client(tmp_path)
-
-    response = client.get("/api/sync-compare", params={"relative_path": "image/notes.md"})
-
-    assert response.status_code == 400
-    assert "Only .txt, .yaml, .yml, and .json" in response.json()["detail"]
