@@ -21,9 +21,7 @@ from .runtime_mode import (
     require_server_api_url,
     set_runtime_mode,
 )
-from .sync_apply import apply_sync_plan
 from .web_models import (
-    HashStatusResponse,
     PolicyActivationScopeResponse,
     PolicyFileResponse,
     PolicyFileUpdateRequest,
@@ -41,14 +39,9 @@ from .web_models import (
     RuntimeModeOptionResponse,
     RuntimeModeRequest,
     RuntimeModeResponse,
-    SyncApplyRequest,
-    SyncApplyResponse,
-    SyncCompareResponse,
-    SyncPlanResponse,
     ValidationResponse,
 )
 from .web_services import (
-    build_hash_status_payload,
     build_policy_activation_scope_payload,
     build_policy_inventory_payload,
     build_policy_namespace_options_payload,
@@ -58,9 +51,6 @@ from .web_services import (
     build_policy_type_options_payload,
     build_runtime_auth_payload,
     build_runtime_login_payload,
-    build_sync_compare_payload,
-    build_sync_payload,
-    build_sync_plan_for_apply,
     build_tree_payload,
     build_validation_payload,
     read_policy_file,
@@ -83,6 +73,25 @@ def create_web_app(
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    def _reject_legacy_source_overrides(request: Request) -> None:
+        """Reject legacy per-request source root overrides.
+
+        Phase 2+ policy workbench authoring is API-first and server-scoped. Query
+        parameters such as ``root`` and ``map_path`` previously enabled request-level
+        filesystem overrides and are now removed to avoid accidental non-canonical
+        routing.
+        """
+
+        legacy_keys = [key for key in ("root", "map_path") if key in request.query_params]
+        if legacy_keys:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Legacy source override query parameters are disabled "
+                    f"({', '.join(sorted(legacy_keys))})."
+                ),
+            )
 
     def _status_code_for_mud_api_error(detail: str) -> int:
         """Map mud-server auth/permission failures to stable HTTP status codes."""
@@ -186,12 +195,18 @@ def create_web_app(
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy-type options for inventory filtering."""
         state = get_runtime_mode()
-        return build_policy_type_options_payload(
-            source_kind=state.source_kind,
-            active_server_url=state.active_server_url,
-            session_id_override=session_id,
-            base_url_override=state.active_server_url,
-        )
+        try:
+            return build_policy_type_options_payload(
+                source_kind=state.source_kind,
+                active_server_url=state.active_server_url,
+                session_id_override=session_id,
+                base_url_override=state.active_server_url,
+            )
+        except (ValueError, OSError) as exc:
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policy-namespaces", response_model=PolicyTypeOptionsResponse)
     async def api_policy_namespaces(
@@ -200,24 +215,38 @@ def create_web_app(
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy namespace options for inventory filtering."""
         state = get_runtime_mode()
-        source_root = resolve_source_root_for_web(
-            root_override=source_root_override,
-            map_path_override=map_path_override,
-        )
-        return build_policy_namespace_options_payload(
-            source_root=source_root,
-            source_kind=state.source_kind,
-            active_server_url=state.active_server_url,
-            session_id_override=session_id,
-            policy_type=policy_type,
-            base_url_override=state.active_server_url,
-        )
+        try:
+            return build_policy_namespace_options_payload(
+                source_kind=state.source_kind,
+                active_server_url=state.active_server_url,
+                session_id_override=session_id,
+                policy_type=policy_type,
+                base_url_override=state.active_server_url,
+            )
+        except (ValueError, OSError) as exc:
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policy-statuses", response_model=PolicyTypeOptionsResponse)
-    async def api_policy_statuses() -> PolicyTypeOptionsResponse:
+    async def api_policy_statuses(
+        session_id: str | None = Query(default=None),
+    ) -> PolicyTypeOptionsResponse:
         """Return canonical policy status options for inventory filtering."""
         state = get_runtime_mode()
-        return build_policy_status_options_payload(source_kind=state.source_kind)
+        try:
+            return build_policy_status_options_payload(
+                source_kind=state.source_kind,
+                active_server_url=state.active_server_url,
+                session_id_override=session_id,
+                base_url_override=state.active_server_url,
+            )
+        except (ValueError, OSError) as exc:
+            detail = str(exc)
+            raise HTTPException(
+                status_code=_status_code_for_mud_api_error(detail), detail=detail
+            ) from exc
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
@@ -319,16 +348,14 @@ def create_web_app(
             ) from exc
 
     @app.get("/api/tree", response_model=PolicyTreeResponse)
-    async def api_tree(
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-    ) -> PolicyTreeResponse:
+    async def api_tree(request: Request) -> PolicyTreeResponse:
         """Return canonical policy tree entries for the browser panel."""
 
         try:
+            _reject_legacy_source_overrides(request)
             source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
+                root_override=source_root_override,
+                map_path_override=map_path_override,
             )
             return build_tree_payload(source_root)
         except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
@@ -336,16 +363,16 @@ def create_web_app(
 
     @app.get("/api/file", response_model=PolicyFileResponse)
     async def api_file_read(
+        request: Request,
         relative_path: str = Query(min_length=1),
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
     ) -> PolicyFileResponse:
         """Read one source policy file by relative path."""
 
         try:
+            _reject_legacy_source_overrides(request)
             source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
+                root_override=source_root_override,
+                map_path_override=map_path_override,
             )
             content = read_policy_file(source_root, relative_path)
             return PolicyFileResponse(
@@ -360,18 +387,16 @@ def create_web_app(
 
     @app.put("/api/file", response_model=PolicyFileUpdateResponse)
     async def api_file_write(
+        request: Request,
         payload: PolicyFileUpdateRequest,
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
     ) -> PolicyFileUpdateResponse:
         """Legacy endpoint intentionally disabled in Phase 2.
 
         Runtime authoring now flows through ``/api/policy-save`` so all writes
         go through mud-server validate/save/activate contracts.
         """
+        _reject_legacy_source_overrides(request)
         _ = payload
-        _ = root
-        _ = map_path
         raise HTTPException(
             status_code=410,
             detail="Direct file writes are disabled. Use /api/policy-save.",
@@ -429,125 +454,17 @@ def create_web_app(
             ) from exc
 
     @app.get("/api/validate", response_model=ValidationResponse)
-    async def api_validate(
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-    ) -> ValidationResponse:
+    async def api_validate(request: Request) -> ValidationResponse:
         """Return validation counts and issue rows for current source tree."""
 
         try:
+            _reject_legacy_source_overrides(request)
             source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
+                root_override=source_root_override,
+                map_path_override=map_path_override,
             )
             return build_validation_payload(source_root)
         except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.get("/api/hash-status", response_model=HashStatusResponse)
-    async def api_hash_status(
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-        canonical_url: str | None = Query(default=None),
-    ) -> HashStatusResponse:
-        """Return canonical/mirror hash alignment status for Step 1 UI."""
-
-        try:
-            source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
-            )
-            return build_hash_status_payload(
-                source_root=source_root,
-                map_path_override=map_path or map_path_override,
-                canonical_snapshot_url_override=canonical_url,
-            )
-        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.get("/api/sync-plan", response_model=SyncPlanResponse)
-    async def api_sync_plan(
-        include_unchanged: bool = Query(default=False),
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-    ) -> SyncPlanResponse:
-        """Return dry-run sync plan for impact review panel."""
-
-        try:
-            source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
-            )
-            return build_sync_payload(
-                source_root=source_root,
-                map_path_override=map_path or map_path_override,
-                include_unchanged=include_unchanged,
-            )
-        except (
-            FileNotFoundError,
-            IsADirectoryError,
-            NotADirectoryError,
-            ValueError,
-            OSError,
-        ) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.get("/api/sync-compare", response_model=SyncCompareResponse)
-    async def api_sync_compare(
-        relative_path: str = Query(min_length=1),
-        focus_target: str | None = Query(default=None),
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-    ) -> SyncCompareResponse:
-        """Return side-by-side source/target comparison for one sync path."""
-
-        try:
-            source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
-            )
-            return build_sync_compare_payload(
-                source_root=source_root,
-                map_path_override=map_path or map_path_override,
-                relative_path=relative_path,
-                focus_target=focus_target,
-            )
-        except (IsADirectoryError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.post("/api/sync-apply", response_model=SyncApplyResponse)
-    async def api_sync_apply(
-        payload: SyncApplyRequest,
-        root: str | None = Query(default=None),
-        map_path: str | None = Query(default=None),
-    ) -> SyncApplyResponse:
-        """Apply non-destructive create/update actions from current sync plan."""
-
-        if not payload.confirm:
-            raise HTTPException(status_code=400, detail="Sync apply requires confirm=true")
-
-        try:
-            source_root = resolve_source_root_for_web(
-                root_override=root or source_root_override,
-                map_path_override=map_path or map_path_override,
-            )
-            plan = build_sync_plan_for_apply(
-                source_root=source_root,
-                map_path_override=map_path or map_path_override,
-            )
-            report = apply_sync_plan(plan)
-            return SyncApplyResponse(
-                created=report.created,
-                updated=report.updated,
-                skipped=report.skipped,
-            )
-        except (
-            FileNotFoundError,
-            IsADirectoryError,
-            NotADirectoryError,
-            ValueError,
-            OSError,
-        ) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app

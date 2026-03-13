@@ -60,51 +60,6 @@
 </section>
 
 <main id="workbench-grid" class="app-grid workbench-grid" aria-label="Policy Workbench">
-  <section id="panel-tree" class="panel panel--left" aria-label="Policy Tree Browser">
-    <div class="panel-header-stack">
-      <div class="panel-header-title-row">
-        <h2 class="panel__heading">Policy Tree</h2>
-      </div>
-      <div class="panel-header-row panel-header-row--meta">
-        <div class="panel-header-main">
-          <span id="tree-source-badge" class="badge badge--warn">Development: Login required</span>
-        </div>
-        <div class="panel-header-actions">
-          <button
-            id="btn-refresh-tree"
-            class="btn btn--secondary btn--sm"
-            type="button"
-            aria-label="Refresh policy tree"
-            title="Refresh policy tree"
-          >↻</button>
-          <button
-            id="btn-toggle-tree"
-            class="btn btn--secondary btn--sm tree-toggle-button"
-            type="button"
-            aria-expanded="true"
-            aria-label="Collapse Policy Tree panel"
-            aria-controls="panel-tree"
-          >◀</button>
-        </div>
-      </div>
-    </div>
-    <div class="tree-summary-shell" aria-live="polite" aria-label="Policy tree counts">
-      <div class="tree-summary-metrics">
-        <span class="tree-summary-metric">
-          <span class="tree-summary-metric__label">Directories</span>
-          <span id="tree-summary-directories" class="tree-summary-metric__value">0</span>
-        </span>
-        <span class="tree-summary-metric">
-          <span class="tree-summary-metric__label">Files</span>
-          <span id="tree-summary-files" class="tree-summary-metric__value">0</span>
-        </span>
-      </div>
-    </div>
-    <div class="list-shell">
-      <ul id="tree-list" class="tree-list"></ul>
-    </div>
-  </section>
-
   <section class="panel panel--centre" aria-label="Raw File Editor">
     <div class="inventory-shell" aria-label="Policy inventory">
       <div class="panel-header-stack">
@@ -152,7 +107,6 @@
       <div class="panel-header-main">
         <h2 class="panel__heading">Raw Editor</h2>
         <span id="editor-source-badge" class="badge badge--muted">No selection</span>
-        <button id="btn-expand-tree" class="btn btn--secondary btn--sm" type="button">Show Tree</button>
       </div>
       <span id="editor-path" class="badge badge--muted">No file selected</span>
     </div>
@@ -162,7 +116,7 @@
       class="code-editor editor-area"
       spellcheck="false"
       autocomplete="off"
-      placeholder="Select a policy file from the left panel to begin editing."
+      placeholder="Select a policy object from inventory to begin editing."
     ></textarea>
 
     <div class="editor-actions">
@@ -201,7 +155,7 @@
     </section>
   </section>
 
-  <section class="panel panel--right" aria-label="Validation and Sync Impact">
+  <section class="panel panel--right" aria-label="Validation Panel">
     <h2 class="panel__heading">Validation</h2>
     <div class="panel-header-row">
       <button id="btn-run-validation" class="btn btn--secondary" type="button">Run Validation</button>
@@ -210,178 +164,8 @@
     <div class="list-shell list-shell--compact">
       <ul id="validation-list" class="report-list"></ul>
     </div>
-
-    <hr class="divider" />
-
-    <h2 class="panel__heading">Sync Impact</h2>
-    <div class="sync-steps" aria-label="Sync workflow">
-      <div class="sync-tabs" role="tablist" aria-label="Sync workflow steps">
-        <button
-          id="sync-tab-build"
-          class="sync-tab is-active"
-          type="button"
-          role="tab"
-          aria-selected="true"
-          aria-controls="sync-step-build-panel"
-          data-sync-tab="build"
-        >Step 1</button>
-        <button
-          id="sync-tab-review"
-          class="sync-tab"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="sync-step-review-panel"
-          data-sync-tab="review"
-        >Step 2</button>
-        <button
-          id="sync-tab-apply"
-          class="sync-tab"
-          type="button"
-          role="tab"
-          aria-selected="false"
-          aria-controls="sync-step-apply-panel"
-          data-sync-tab="apply"
-        >Step 3</button>
-      </div>
-
-      <section
-        id="sync-step-build-panel"
-        class="sync-step sync-step--build"
-        role="tabpanel"
-        aria-labelledby="sync-tab-build"
-        data-sync-step="build"
-      >
-        <div class="sync-step__header">
-          <h3 id="sync-step-build-heading" class="sync-step__title">Step 1 · Hash Snapshot</h3>
-          <button id="btn-refresh-hash" class="btn btn--secondary" type="button">Refresh Hash Snapshot</button>
-        </div>
-        <p class="sync-step__note">Canonical hash authority from mud-server and local mirror alignment.</p>
-        <table class="sync-state-table" aria-label="Hash snapshot state">
-          <tbody id="hash-state-table-body">
-          <tr>
-            <th scope="row">Overall</th>
-            <td>
-              <span id="hash-status-overall" class="hash-target-badge hash-target-badge--muted">unknown</span>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Canonical hash</th>
-            <td class="hash-row-value">
-              <span id="hash-canonical-root">--</span>
-              <button id="btn-copy-hash" class="btn btn--secondary btn--sm" type="button">Copy</button>
-            </td>
-          </tr>
-          <tr>
-            <th scope="row">Canonical URL</th>
-            <td id="hash-canonical-url">--</td>
-          </tr>
-          <tr>
-            <th scope="row">Status detail</th>
-            <td id="hash-canonical-error">--</td>
-          </tr>
-          <tr>
-            <th scope="row">Generated</th>
-            <td id="hash-generated-at">--</td>
-          </tr>
-          <tr id="hash-file-count-row">
-            <th scope="row">Canonical files</th>
-            <td id="hash-file-count">0</td>
-          </tr>
-          </tbody>
-        </table>
-        <div id="hash-targets" class="hash-targets"></div>
-      </section>
-
-      <section
-        id="sync-step-review-panel"
-        class="sync-step sync-step--review"
-        role="tabpanel"
-        aria-labelledby="sync-tab-review"
-        data-sync-step="review"
-        hidden
-      >
-        <div class="sync-step__header">
-          <h3 id="sync-step-review-heading" class="sync-step__title">Step 2 · Review Actions</h3>
-          <button id="btn-build-sync" class="btn btn--secondary" type="button">Refresh Dry-Run Plan</button>
-        </div>
-        <div id="sync-counts" class="sync-summary-chips" aria-live="polite"></div>
-        <table class="sync-state-table" aria-label="Review progress">
-          <tbody>
-          <tr>
-            <th scope="row">Plan</th>
-            <td id="sync-plan-state">not generated yet</td>
-          </tr>
-          <tr>
-            <th scope="row">Reviewed</th>
-            <td id="sync-reviewed-state">0 / 0 actions</td>
-          </tr>
-          </tbody>
-        </table>
-        <div class="list-shell list-shell--compact list-shell--sync">
-          <ul id="sync-list" class="report-list"></ul>
-        </div>
-        <section id="sync-unchanged-card" class="sync-unchanged-card" aria-label="Unchanged breakdown">
-          <h4 class="sync-unchanged-card__title">Unchanged Breakdown</h4>
-          <table class="sync-unchanged-table" aria-label="Unchanged arithmetic across targets">
-            <thead>
-            <tr>
-              <th scope="col">Target</th>
-              <th scope="col">Arithmetic</th>
-              <th scope="col">Unchanged</th>
-            </tr>
-            </thead>
-            <tbody id="sync-unchanged-body">
-            <tr>
-              <td colspan="3">Generate hash snapshot and plan to view unchanged arithmetic.</td>
-            </tr>
-            </tbody>
-            <tfoot>
-            <tr>
-              <th scope="row" colspan="2">Total unchanged</th>
-              <td id="sync-unchanged-total">--</td>
-            </tr>
-            </tfoot>
-          </table>
-        </section>
-      </section>
-
-      <section
-        id="sync-step-apply-panel"
-        class="sync-step sync-step--apply"
-        role="tabpanel"
-        aria-labelledby="sync-tab-apply"
-        data-sync-step="apply"
-        hidden
-      >
-        <div class="sync-step__header">
-          <h3 id="sync-step-apply-heading" class="sync-step__title">Step 3 · Apply Changes</h3>
-          <button id="btn-apply-sync" class="btn btn--secondary" type="button">Apply Create/Update</button>
-        </div>
-        <div id="sync-apply-hint" class="meta-line">Generate a dry-run plan first.</div>
-      </section>
-    </div>
   </section>
 </main>
-
-<div id="sync-diff-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="sync-diff-title">
-  <div id="sync-diff-backdrop" class="modal__backdrop"></div>
-  <div class="modal__card sync-diff-modal__card">
-    <div class="modal__header">
-      <h3 id="sync-diff-title" class="panel__heading">Sync Compare</h3>
-      <button id="sync-diff-close-x" class="btn btn--secondary btn--sm" type="button">Close</button>
-    </div>
-    <div id="sync-diff-meta" class="sync-diff-meta"></div>
-    <div class="sync-compare-path-row">
-      <span id="sync-compare-path" class="sync-compare-path">pipeworks_web/policies/...</span>
-      <button id="sync-compare-copy-path" class="btn btn--secondary btn--sm" type="button">Copy Path</button>
-    </div>
-    <div id="sync-compare-columns" class="sync-compare-columns"></div>
-    <div class="modal__actions">
-      <button id="sync-diff-close" class="btn btn--secondary" type="button">Close</button>
-    </div>
-  </div>
-</div>
 
 <footer class="status-bar" aria-live="polite">
   <span id="status-text" class="status-bar__text">Ready.</span>

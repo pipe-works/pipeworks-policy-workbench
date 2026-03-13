@@ -70,6 +70,16 @@ _FALLBACK_POLICY_STATUSES = (
     "archived",
 )
 
+# IPC hashing remains intentionally even after removing the Sync Impact UI.
+#
+# Rationale:
+# 1. Policy Workbench still needs deterministic, cross-repo-stable hashing
+#    semantics for canonical policy payload processing and integrity helpers.
+# 2. Mud-server and other pipe-works tools already use pipeworks_ipc as the
+#    shared provenance contract; keeping this dependency prevents hash drift
+#    between tools as policy workflows are tightened around API-only authoring.
+# 3. The plain `compute_payload_hash` fallback path is preserved so local dev
+#    still behaves deterministically if optional IPC helper symbols are absent.
 try:
     import pipeworks_ipc.hashing as ipc_hashing
 except ImportError:  # pragma: no cover - import path is expected in normal runtime
@@ -296,116 +306,91 @@ def build_policy_type_options_payload(
     session_id_override: str | None,
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy-type options sourced from API or local files.
-
-    Resolution order:
-    1. mud-server API inventory-derived policy types when server mode has a usable session
-    2. local mud-server canonical source file in this workspace
-    3. stable built-in fallback list
-    """
-
-    local_policy_types, local_source, local_detail = _load_local_policy_types_from_disk()
-
-    try:
-        runtime = _resolve_mud_api_runtime_config(
-            session_id_override=session_id_override,
-            base_url_override=(
-                base_url_override if base_url_override is not None else active_server_url
-            ),
-        )
-        payload = _fetch_mud_api_json(
-            runtime=runtime,
-            method="GET",
-            path="/api/policies",
-            query_params={},
-        )
-        api_policy_types = _extract_policy_types_from_inventory_payload(payload)
-    except ValueError as exc:
-        return PolicyTypeOptionsResponse(
-            items=local_policy_types,
-            source=local_source,
-            detail=f"API policy-type discovery unavailable; using local canonical source. {exc}",
-        )
-
-    merged_policy_types = _merge_policy_type_lists(
-        primary_types=api_policy_types,
-        fallback_types=local_policy_types,
+    """Return canonical policy-type options sourced strictly from mud-server API inventory."""
+    if source_kind != "server_api":
+        raise ValueError("Runtime mode must be server_api.")
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=(
+            base_url_override if base_url_override is not None else active_server_url
+        ),
     )
-    source = "mud_server_api" if merged_policy_types == api_policy_types else "mud_server_api+local"
-    detail = (
-        "Policy types resolved from mud-server API inventory."
-        if source == "mud_server_api"
-        else "Policy types resolved from mud-server API and local canonical source."
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policies",
+        query_params={},
     )
+    api_policy_types = _extract_policy_types_from_inventory_payload(payload)
     return PolicyTypeOptionsResponse(
-        items=merged_policy_types,
-        source=source,
-        detail=detail,
+        items=api_policy_types,
+        source="mud_server_api",
+        detail="Policy types resolved from mud-server API inventory.",
     )
 
 
 def build_policy_namespace_options_payload(
     *,
-    source_root: Path,
     source_kind: str,
     active_server_url: str | None,
     session_id_override: str | None,
     policy_type: str | None,
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy namespace options filtered by optional type."""
-
+    """Return canonical policy namespace options sourced strictly from mud-server API inventory."""
+    if source_kind != "server_api":
+        raise ValueError("Runtime mode must be server_api.")
     normalized_policy_type = str(policy_type or "").strip() or None
-    local_namespaces = _load_local_namespaces_from_disk(
-        source_root=source_root,
-        policy_type=normalized_policy_type,
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=(
+            base_url_override if base_url_override is not None else active_server_url
+        ),
     )
-    try:
-        runtime = _resolve_mud_api_runtime_config(
-            session_id_override=session_id_override,
-            base_url_override=(
-                base_url_override if base_url_override is not None else active_server_url
-            ),
-        )
-        query_params = {}
-        if normalized_policy_type:
-            query_params["policy_type"] = normalized_policy_type
-        payload = _fetch_mud_api_json(
-            runtime=runtime,
-            method="GET",
-            path="/api/policies",
-            query_params=query_params,
-        )
-        api_namespaces = _extract_namespaces_from_inventory_payload(payload)
-    except ValueError as exc:
-        return PolicyTypeOptionsResponse(
-            items=local_namespaces,
-            source="local_disk",
-            detail=f"API namespace discovery unavailable; using local canonical source. {exc}",
-        )
-
-    merged_namespaces = _merge_policy_type_lists(
-        primary_types=api_namespaces,
-        fallback_types=local_namespaces,
+    query_params: dict[str, str] = {}
+    if normalized_policy_type:
+        query_params["policy_type"] = normalized_policy_type
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policies",
+        query_params=query_params,
     )
+    api_namespaces = _extract_namespaces_from_inventory_payload(payload)
     return PolicyTypeOptionsResponse(
-        items=merged_namespaces,
+        items=api_namespaces,
         source="mud_server_api",
-        detail="Namespaces resolved from mud-server API inventory (with local canonical fallback).",
+        detail="Namespaces resolved from mud-server API inventory.",
     )
 
 
 def build_policy_status_options_payload(
     *,
     source_kind: str,
+    active_server_url: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy status options from local canonical contract."""
-
-    statuses, source, detail = _load_local_policy_statuses_from_disk()
+    """Return canonical policy status options sourced strictly from mud-server API inventory."""
+    if source_kind != "server_api":
+        raise ValueError("Runtime mode must be server_api.")
+    runtime = _resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=(
+            base_url_override if base_url_override is not None else active_server_url
+        ),
+    )
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policies",
+        query_params={},
+    )
+    statuses = _extract_statuses_from_inventory_payload(payload)
     return PolicyTypeOptionsResponse(
         items=statuses,
-        source=source,
-        detail=detail or "Loaded canonical statuses from local mud-server contract.",
+        source="mud_server_api",
+        detail="Statuses resolved from mud-server API inventory.",
     )
 
 
@@ -881,21 +866,20 @@ def _extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> li
     return _dedupe_preserve_order(namespaces)
 
 
-def _merge_policy_type_lists(
-    *,
-    primary_types: list[str],
-    fallback_types: list[str],
-) -> list[str]:
-    """Merge type lists, preserving primary order and appending missing fallback values."""
-    merged: list[str] = []
-    seen: set[str] = set()
-    for candidate in [*primary_types, *fallback_types]:
-        normalized = str(candidate or "").strip()
-        if not normalized or normalized in seen:
+def _extract_statuses_from_inventory_payload(payload: dict[str, object]) -> list[str]:
+    """Extract stable status list from ``GET /api/policies`` payload."""
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("Mud API /api/policies response must include an 'items' list.")
+
+    statuses: list[str] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
             continue
-        seen.add(normalized)
-        merged.append(normalized)
-    return merged
+        status = str(item.get("status", "")).strip()
+        if status:
+            statuses.append(status)
+    return _dedupe_preserve_order(statuses)
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
@@ -1164,7 +1148,13 @@ def _collect_local_policy_entries(policy_root: Path) -> list[_PolicyHashEntry]:
 
 
 def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
-    """Compute deterministic policy file hash via IPC helper with fallback."""
+    """Compute deterministic policy file hash using IPC as the primary contract.
+
+    Even with Sync Impact removed from the web UI, this helper stays because
+    deterministic hash identity is part of the cross-tool policy provenance
+    contract. The IPC implementation is authoritative when available; the local
+    fallback keeps behavior stable in constrained environments.
+    """
 
     helper = getattr(ipc_hashing, "compute_policy_file_hash", None) if ipc_hashing else None
     if callable(helper):
@@ -1183,7 +1173,12 @@ def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
 
 
 def _compute_tree_hash(entries: list[_PolicyHashEntry]) -> str:
-    """Compute deterministic policy tree hash via IPC helper with fallback."""
+    """Compute deterministic policy tree hash using IPC as the primary contract.
+
+    This helper remains to keep tree-level hash semantics aligned with mud-server
+    and other clients that rely on pipeworks_ipc for deterministic provenance.
+    A payload-hash fallback remains for robust local execution.
+    """
 
     helper = getattr(ipc_hashing, "compute_policy_tree_hash", None) if ipc_hashing else None
     entry_cls = getattr(ipc_hashing, "PolicyHashEntry", None) if ipc_hashing else None

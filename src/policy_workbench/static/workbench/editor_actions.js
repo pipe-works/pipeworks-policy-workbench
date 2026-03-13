@@ -7,8 +7,6 @@ import {
   readActivationScopeInputs,
   refreshActivationScope,
 } from "./inventory.js";
-import { loadFile } from "./tree.js";
-import { markSyncPlanStale } from "./sync_plan.js";
 
 let _fetchJson = null;
 let _setStatus = null;
@@ -42,7 +40,7 @@ export async function saveCurrentFile() {
     return;
   }
 
-  const targetLabel = state.selectedPath || buildPolicySelectorLabel(state.selectedArtifact);
+    const targetLabel = buildPolicySelectorLabel(state.selectedArtifact);
   _setStatus(
     activateAfterSave
       ? `Saving ${targetLabel} and activating ${activationScope.scope}...`
@@ -90,7 +88,6 @@ export async function saveCurrentFile() {
     if (state.selectedPolicyRecord) {
       await loadPolicyObject(saveResult.policy_id, saveResult.variant);
     }
-    markSyncPlanStale();
   } catch (error) {
     _setStatus(`Save failed: ${error.message}`);
   }
@@ -98,13 +95,9 @@ export async function saveCurrentFile() {
 
 export async function reloadCurrentFile() {
   requireEditorDeps();
-  if (state.selectedPath) {
-    await loadFile(state.selectedPath);
-    return;
-  }
   if (state.selectedPolicyRecord) {
     await loadPolicyObject(state.selectedPolicyRecord.policy_id, state.selectedPolicyRecord.variant);
     return;
   }
-  _setStatus("Select a file or policy object before reloading.");
+  _setStatus("Select a policy object before reloading.");
 }
