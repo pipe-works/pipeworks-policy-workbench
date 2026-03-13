@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.12](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.11...pipeworks-policy-workbench-v0.1.12) (2026-03-13)
+
+
+### Fixes
+
+* **workbench:** enforce api-only authoring surface ([884de92](https://github.com/pipe-works/pipeworks-policy-workbench/commit/884de92888c9de6be3b63943143a96e06f1f3008))
+* **workbench:** enforce api-only authoring surface ([541975b](https://github.com/pipe-works/pipeworks-policy-workbench/commit/541975b2010821d4651ed4aadfd49553397846db))
+
 ## [0.1.11](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.10...pipeworks-policy-workbench-v0.1.11) (2026-03-13)
 
 
