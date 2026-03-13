@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.11](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.10...pipeworks-policy-workbench-v0.1.11) (2026-03-13)
+
+
+### Features
+
+* remove offline mode and slim policy tree ([cdfd295](https://github.com/pipe-works/pipeworks-policy-workbench/commit/cdfd295060d64034d9cd4dd9e40c64a1885de085))
+* remove offline mode and slim policy tree ([4dc83df](https://github.com/pipe-works/pipeworks-policy-workbench/commit/4dc83df1c29c75fef749945fdeabdbadaea2a8bb))
+* **runtime:** clarify source mode and canonical policy inventory filters ([4c04b6e](https://github.com/pipe-works/pipeworks-policy-workbench/commit/4c04b6e277f07dae9eebc72bf0c6180478b336bd))
+* **runtime:** clarify source mode and canonical policy inventory filters ([6234924](https://github.com/pipe-works/pipeworks-policy-workbench/commit/6234924b939fbaa8eb8ebaba91f6780bed7bd47a))
+
+
+### Fixes
+
+* **runtime:** simplify auth UX and default to offline mode ([661284d](https://github.com/pipe-works/pipeworks-policy-workbench/commit/661284d9c3f54d938cc84c6b8e441cb938908314))
+* **runtime:** simplify auth UX and default to offline mode ([22bbe33](https://github.com/pipe-works/pipeworks-policy-workbench/commit/22bbe3370978ed4dbd3724122dea086ff3eacb99))
+
+
+### Internal Changes
+
+* split workbench frontend entry and add DOM contract tests ([857a8e4](https://github.com/pipe-works/pipeworks-policy-workbench/commit/857a8e47c4c3a49c38c7aa171f1dab6b7d60c588))
+* split workbench frontend entry and add DOM contract tests ([a0729a9](https://github.com/pipe-works/pipeworks-policy-workbench/commit/a0729a9ed010fdb9b8134780f9b82fb192f03781))
+* **workbench:** modularize frontend runtime sync and boot wiring ([cf30373](https://github.com/pipe-works/pipeworks-policy-workbench/commit/cf30373aa4cf0cb23353739f8b60f1d1cbaa3e8b))
+* **workbench:** modularize frontend runtime sync and boot wiring ([8d437e6](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8d437e6ebd4ef9895718bd2fd7f4fa7b6e6c3849))
+
 ## [0.1.10](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.9...pipeworks-policy-workbench-v0.1.10) (2026-03-12)
 
 
