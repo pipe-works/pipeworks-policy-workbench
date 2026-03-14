@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import cast
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from pipeworks_ipc.hashing import compute_payload_hash
 
+from . import mud_api_client
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
@@ -828,10 +829,7 @@ def _resolve_mud_api_runtime_config(
 
 def _normalize_base_url(value: str | None) -> str:
     """Normalize mud API base URL and reject empty/invalid values."""
-    base_url = (value or "").strip().rstrip("/")
-    if not base_url:
-        return ""
-    return base_url
+    return mud_api_client.normalize_base_url(value)
 
 
 def _extract_string_list_from_capabilities_payload(
@@ -1015,24 +1013,15 @@ def _fetch_mud_api_json(
     query_params: dict[str, str],
 ) -> dict[str, object]:
     """Issue one mud-server API request and return parsed JSON object payload."""
-    normalized_query = {key: value for key, value in query_params.items() if value}
-    normalized_query["session_id"] = runtime.session_id
-    query = urlencode(normalized_query, doseq=False)
-    url = f"{runtime.base_url}{path}?{query}" if query else f"{runtime.base_url}{path}"
-    request = Request(url=url, method=method, headers={"Accept": "application/json"})
-
-    try:
-        with urlopen(request, timeout=runtime.timeout_seconds) as response:  # noqa: S310
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = _mud_api_http_error_detail(exc)
-        raise ValueError(f"Mud API request failed ({method} {url}): {detail}") from exc
-    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Mud API request failed ({method} {url}): {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Mud API response for {method} {url} must be a JSON object.")
-    return payload
+    # Wrapper preserved for backward compatibility while the shared transport
+    # implementation is adopted across service modules.
+    return mud_api_client.fetch_mud_api_json(
+        runtime=runtime,
+        method=method,
+        path=path,
+        query_params=query_params,
+        opener=urlopen,
+    )
 
 
 def _fetch_mud_api_json_anonymous(
@@ -1044,48 +1033,21 @@ def _fetch_mud_api_json_anonymous(
     timeout_seconds: float = 8.0,
 ) -> dict[str, object]:
     """Issue one mud-server API request without session query injection."""
-    url = f"{base_url}{path}"
-    payload_bytes = json.dumps(body).encode("utf-8") if body is not None else None
-    request = Request(
-        url=url,
+    # Wrapper preserved for backward compatibility while the shared transport
+    # implementation is adopted across service modules.
+    return mud_api_client.fetch_mud_api_json_anonymous(
+        base_url=base_url,
         method=method,
-        data=payload_bytes,
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
+        path=path,
+        body=body,
+        timeout_seconds=timeout_seconds,
+        opener=urlopen,
     )
-
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
-            payload = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        detail = _mud_api_http_error_detail(exc)
-        raise ValueError(f"Mud API request failed ({method} {url}): {detail}") from exc
-    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Mud API request failed ({method} {url}): {exc}") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Mud API response for {method} {url} must be a JSON object.")
-    return payload
 
 
 def _mud_api_http_error_detail(exc: HTTPError) -> str:
     """Extract best-effort detail from mud-server API HTTP error payloads."""
-    default_detail = f"HTTP {exc.code}"
-    try:
-        payload = json.loads(exc.read().decode("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default_detail
-
-    if isinstance(payload, dict):
-        detail = payload.get("detail")
-        code = payload.get("code")
-        if detail and code:
-            return f"{code}: {detail}"
-        if detail:
-            return str(detail)
-    return default_detail
+    return mud_api_client.mud_api_http_error_detail(exc)
 
 
 def _resolve_canonical_hash_snapshot_url(url_override: str | None) -> str:
