@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pipeworks-policy-workbench"
-version = "0.1.18"
+version = "0.1.19"
 description = "Cross-repository policy authoring, validation, and sync tooling for Pipe-Works"
 readme = "README.md"
 requires-python = ">=3.12"
