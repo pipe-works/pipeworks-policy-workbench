@@ -138,7 +138,7 @@ def selector_from_relative_path(relative_path: str) -> PolicySelector | None:
     if descriptor_match is not None:
         return PolicySelector(
             policy_type="descriptor_layer",
-            namespace="image.descriptor_layers",
+            namespace="image.descriptors",
             policy_key=descriptor_match.group("policy_key"),
             variant=descriptor_match.group("variant"),
         )
@@ -393,7 +393,21 @@ def _build_policy_content_from_raw(
             raise ValueError("tone_profile raw_content must be a JSON object.")
         return cast(dict[str, object], parsed)
 
-    if selector.policy_type in {"descriptor_layer", "registry"}:
+    if selector.policy_type == "descriptor_layer":
+        payload = _parse_structured_object_from_raw(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
+        references = _extract_layer2_references(
+            payload=payload,
+            policy_type=selector.policy_type,
+        )
+        descriptor_text = payload.get("text")
+        if not isinstance(descriptor_text, str) or not descriptor_text.strip():
+            raise ValueError("descriptor_layer content.text must be a non-empty string.")
+        return {"references": references, "text": descriptor_text.strip()}
+
+    if selector.policy_type == "registry":
         payload = _parse_structured_object_from_raw(
             raw_content=raw_content,
             policy_type=selector.policy_type,

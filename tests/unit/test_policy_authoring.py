@@ -54,10 +54,10 @@ def test_selector_from_relative_path_maps_descriptor_layer_structured_files() ->
     )
     assert selector is not None
     assert selector.policy_type == "descriptor_layer"
-    assert selector.namespace == "image.descriptor_layers"
+    assert selector.namespace == "image.descriptors"
     assert selector.policy_key == "id_card"
     assert selector.variant == "v2"
-    assert selector.policy_id == "descriptor_layer:image.descriptor_layers:id_card"
+    assert selector.policy_id == "descriptor_layer:image.descriptors:id_card"
 
 
 def test_selector_from_relative_path_maps_registry_yaml_files() -> None:
@@ -416,7 +416,7 @@ def test_save_policy_variant_from_raw_content_supports_descriptor_layer_referenc
     """Generic save helper should pass normalized references for descriptor-layer payloads."""
     selector = PolicySelector(
         policy_type="descriptor_layer",
-        namespace="image.descriptor_layers",
+        namespace="image.descriptors",
         policy_key="id_card",
         variant="v1",
     )
@@ -438,6 +438,8 @@ def test_save_policy_variant_from_raw_content_supports_descriptor_layer_referenc
     result = policy_authoring.save_policy_variant_from_raw_content(
         selector=selector,
         raw_content=(
+            "text: |\n"
+            "  Identity card descriptor layer.\n"
             "references:\n"
             "  - policy_id: species_block:image.blocks.species:goblin\n"
             "    variant: v1\n"
@@ -450,15 +452,16 @@ def test_save_policy_variant_from_raw_content_supports_descriptor_layer_referenc
         actor="tester",
         runtime_config=config,
     )
-    assert result.policy_id == "descriptor_layer:image.descriptor_layers:id_card"
+    assert result.policy_id == "descriptor_layer:image.descriptors:id_card"
     assert result.policy_version == 2
     assert captured_payloads[0]["content"] == {
+        "text": "Identity card descriptor layer.",
         "references": [
             {
                 "policy_id": "species_block:image.blocks.species:goblin",
                 "variant": "v1",
             }
-        ]
+        ],
     }
 
 
@@ -540,11 +543,41 @@ def test_save_policy_variant_from_raw_content_rejects_descriptor_layer_non_objec
         policy_authoring.save_policy_variant_from_raw_content(
             selector=PolicySelector(
                 policy_type="descriptor_layer",
-                namespace="image.descriptor_layers",
+                namespace="image.descriptors",
                 policy_key="id_card",
                 variant="v1",
             ),
             raw_content='["not-an-object"]',
+            schema_version="1.0",
+            status="draft",
+            activate=False,
+            world_id=None,
+            client_profile=None,
+            actor=None,
+            runtime_config=MudPolicyRuntimeConfig(
+                base_url="http://mud.local:8000", session_id="s-1"
+            ),
+        )
+
+
+def test_save_policy_variant_from_raw_content_rejects_descriptor_layer_without_text() -> None:
+    """Descriptor-layer save should fail fast when content.text is missing/blank."""
+    with pytest.raises(
+        ValueError,
+        match="descriptor_layer content.text must be a non-empty string",
+    ):
+        policy_authoring.save_policy_variant_from_raw_content(
+            selector=PolicySelector(
+                policy_type="descriptor_layer",
+                namespace="image.descriptors",
+                policy_key="id_card",
+                variant="v1",
+            ),
+            raw_content=(
+                "references:\n"
+                "  - policy_id: species_block:image.blocks.species:goblin\n"
+                "    variant: v1\n"
+            ),
             schema_version="1.0",
             status="draft",
             activate=False,
