@@ -91,6 +91,8 @@ def build_runtime_auth_payload(
             base_url_override=base_url_override,
         )
     except ValueError:
+        # Treat missing/invalid runtime config as "missing_session" so the UI
+        # can present a recovery action (login) instead of a generic error.
         return RuntimeAuthResponse(
             mode_key=mode_key,
             source_kind=source_kind,
@@ -177,6 +179,9 @@ def build_runtime_login_payload(
         raise ValueError("Mud login response did not include role.")
     normalized_role = role.strip()
     if normalized_role not in allowed_roles:
+        # Login itself succeeded, but policy APIs are role-gated. Returning
+        # success=False with session metadata lets operators see who they are
+        # authenticated as without incorrectly marking policy access as allowed.
         return RuntimeLoginResponse(
             success=False,
             session_id=session_id.strip(),
@@ -295,6 +300,8 @@ def classify_runtime_auth_probe_error(
     role_required_detail: str,
 ) -> tuple[str, str]:
     """Classify capability probe failures into stable UI-facing status codes."""
+    # Use explicit phrase checks here to decouple UI auth-state transitions
+    # from backend HTTP/status formatting details.
     if role_required_detail in error_detail:
         return (
             "forbidden",
