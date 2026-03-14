@@ -92,6 +92,10 @@ def create_web_app(
 
     def _status_code_for_mud_api_error(detail: str) -> int:
         """Map mud-server auth/permission failures to stable HTTP status codes."""
+        # Keep this mapping string-based and conservative so route behavior
+        # stays stable even if mud-server evolves internal exception classes.
+        # The workbench depends on these coarse categories for clear UX states:
+        # unauthenticated (401), forbidden role (403), other request errors (400).
         if (
             "Policy API requires admin or superuser role." in detail
             or "role is not admin/superuser" in detail
@@ -125,6 +129,9 @@ def create_web_app(
             server_api_url = require_server_api_url()
             return _run_mud_service(lambda: call(server_api_url))
         except RuntimeModeUnavailableError as exc:
+            # Fail closed when runtime mode does not provide a server URL.
+            # Returning 503 keeps callers from mistaking environment/runtime
+            # misconfiguration for policy validation/data problems.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     def _resolve_source_root_for_request(request: Request) -> Path:
@@ -352,7 +359,7 @@ def create_web_app(
 
     @app.get("/api/file")
     async def api_file_read():
-        """Legacy endpoint intentionally disabled in Phase 3."""
+        """Legacy endpoint removed from API-first surface and fails closed."""
 
         raise HTTPException(
             status_code=410,
@@ -364,7 +371,7 @@ def create_web_app(
 
     @app.put("/api/file")
     async def api_file_write():
-        """Legacy endpoint intentionally disabled in Phase 3."""
+        """Legacy endpoint removed from API-first surface and fails closed."""
 
         raise HTTPException(
             status_code=410,
@@ -393,6 +400,9 @@ def create_web_app(
         )
 
         def _build_save_response(server_api_url: str) -> PolicySaveResponse:
+            # Runtime config resolution happens per request so a stale/missing
+            # session cannot be reused across save calls after mode/session
+            # changes in the UI.
             runtime_config = resolve_runtime_config(
                 session_id_override=payload.session_id,
                 base_url_override=server_api_url,

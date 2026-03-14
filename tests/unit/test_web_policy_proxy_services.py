@@ -164,7 +164,7 @@ def test_detail_activation_publish_builders_call_expected_routes() -> None:
     assert detail_payload.variant == "v1"
 
     activation_payload = web_policy_proxy_services.build_policy_activation_scope_payload(
-        scope="pipeworks_web:mobile",
+        scope=" pipeworks_web:mobile ",
         effective=False,
         session_id_override="session-1",
         base_url_override=None,
@@ -195,3 +195,22 @@ def test_detail_activation_publish_builders_call_expected_routes() -> None:
     }
     assert captured_calls[2]["path"] == "/api/policy-publish/9"
     assert captured_calls[2]["query_params"] == {}
+
+
+def test_build_policy_activation_scope_payload_rejects_blank_scope() -> None:
+    """Activation helper should fail fast when scope is blank after trimming."""
+
+    with pytest.raises(ValueError, match="scope is required"):
+        web_policy_proxy_services.build_policy_activation_scope_payload(
+            scope="   ",
+            effective=True,
+            session_id_override="session-1",
+            base_url_override=None,
+            resolve_runtime_config=lambda **_kwargs: MudApiRuntimeConfig(
+                base_url="http://mud.local:8000",
+                session_id="session-1",
+            ),
+            fetch_mud_api_json=lambda **_kwargs: (_ for _ in ()).throw(
+                AssertionError("fetch_mud_api_json should not be called for blank scope")
+            ),
+        )

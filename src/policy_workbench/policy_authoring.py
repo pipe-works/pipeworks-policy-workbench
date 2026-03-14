@@ -186,6 +186,9 @@ def save_policy_variant_from_raw_content(
     """
     content = _build_policy_content_from_raw(selector=selector, raw_content=raw_content)
     policy_id = selector.policy_id
+    # Always derive version server-side from current canonical state rather
+    # than accepting client-supplied versions. This prevents accidental
+    # version skew when multiple operators save concurrently.
     next_policy_version = _resolve_next_policy_version(
         runtime_config=runtime_config,
         policy_id=policy_id,
@@ -216,6 +219,8 @@ def save_policy_variant_from_raw_content(
             raise ValueError("; ".join(str(item) for item in errors))
         raise ValueError("Validation failed for policy payload.")
 
+    # Only perform upsert after validate succeeds so canonical API write paths
+    # preserve validate -> save ordering guarantees relied on by operators and CI.
     upsert_payload = _request_json(
         method="PUT",
         url=(
@@ -261,6 +266,8 @@ def save_policy_variant_from_raw_content(
         )
         if activation_payload is None:
             raise ValueError("Activation request returned no payload.")
+        # audit_event_id may be omitted depending on server-side audit policy,
+        # so keep this nullable while normalizing numeric/string response forms.
         raw_event_id = activation_payload.get("audit_event_id")
         activation_audit_event_id = (
             int(cast(int | str, raw_event_id)) if raw_event_id is not None else None
@@ -351,6 +358,7 @@ def _resolve_next_policy_version(
         allow_not_found=True,
     )
     if response is None:
+        # 404 is treated as first-write bootstrap for the selector variant.
         return 1
     raw_policy_version = response.get("policy_version", 0)
     return int(cast(int | str, raw_policy_version)) + 1
@@ -434,6 +442,9 @@ def _extract_layer2_references(
         return _normalize_reference_entries(references=raw_references, policy_type=policy_type)
 
     if policy_type == "registry":
+        # Registry fallback inference is intentionally restricted to recognized
+        # legacy path fields so migration cannot silently fabricate references
+        # from arbitrary payload keys.
         inferred_references = _infer_registry_references_from_legacy_payload(payload=payload)
         if inferred_references:
             return inferred_references

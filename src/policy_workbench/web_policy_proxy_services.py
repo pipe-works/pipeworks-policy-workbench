@@ -147,6 +147,10 @@ def build_policy_activation_scope_payload(
     fetch_mud_api_json: AuthenticatedMudApiFetcher,
 ) -> PolicyActivationScopeResponse:
     """Build activation-scope payload from mud-server policy activation API."""
+    normalized_scope = str(scope or "").strip()
+    if not normalized_scope:
+        raise ValueError("scope is required.")
+
     runtime = resolve_runtime_config(
         session_id_override=session_id_override,
         base_url_override=base_url_override,
@@ -156,7 +160,10 @@ def build_policy_activation_scope_payload(
         method="GET",
         path="/api/policy-activations",
         query_params={
-            "scope": scope,
+            # Scope is normalized at the boundary so backend API calls stay
+            # deterministic even when UI/query inputs include surrounding
+            # whitespace.
+            "scope": normalized_scope,
             "effective": "true" if effective else "false",
         },
     )
