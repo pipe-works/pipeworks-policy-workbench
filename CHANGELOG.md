@@ -13,6 +13,14 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.20](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.19...pipeworks-policy-workbench-v0.1.20) (2026-03-14)
+
+
+### Fixes
+
+* **policy-authoring:** normalize descriptor namespace and require text payload ([5a6ed95](https://github.com/pipe-works/pipeworks-policy-workbench/commit/5a6ed95985bdc6d0a62130616ae4e3eb96af5012))
+* **policy-authoring:** normalize descriptor namespace and require text payload ([8ef3bb9](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8ef3bb92d0d611d98d0b1888d8a5044aff32cfd4))
+
 ## [0.1.19](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.18...pipeworks-policy-workbench-v0.1.19) (2026-03-14)
 
 
