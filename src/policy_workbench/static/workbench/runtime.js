@@ -256,7 +256,7 @@ export function setServerFeatureAvailability() {
   }
 
   const canSave = serverAuthorized
-    && Boolean(state.selectedArtifact?.is_authorable || state.selectedPolicyRecord);
+    && Boolean(state.selectedPolicyRecord && state.selectedArtifact?.is_authorable);
   if (dom.btnSaveFile) {
     dom.btnSaveFile.disabled = !canSave;
   }

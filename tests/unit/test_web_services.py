@@ -99,7 +99,7 @@ def test_build_runtime_auth_payload_rejects_non_server_source_kind() -> None:
 
 
 def test_build_runtime_auth_payload_reports_authorized_session(monkeypatch) -> None:
-    """Runtime auth probe should mark session authorized on successful policy API call."""
+    """Runtime auth probe should mark session authorized on successful capabilities call."""
 
     monkeypatch.setattr(
         web_services,
@@ -109,7 +109,16 @@ def test_build_runtime_auth_payload_reports_authorized_session(monkeypatch) -> N
             session_id=session_id_override or "s1",
         ),
     )
-    monkeypatch.setattr(web_services, "_fetch_mud_api_json", lambda **_kwargs: {"items": []})
+    monkeypatch.setattr(
+        web_services,
+        "_fetch_mud_api_json",
+        lambda **_kwargs: {
+            "authorized": True,
+            "role": "admin",
+            "allowed_policy_types": ["species_block"],
+            "allowed_statuses": ["draft"],
+        },
+    )
 
     payload = web_services.build_runtime_auth_payload(
         mode_key="server_dev",
@@ -163,7 +172,7 @@ def test_build_runtime_auth_payload_reports_forbidden_role(monkeypatch) -> None:
         "_fetch_mud_api_json",
         lambda **_kwargs: (_ for _ in ()).throw(
             ValueError(
-                "Mud API request failed (GET http://mud.local:8000/api/policies): "
+                "Mud API request failed (GET http://mud.local:8000/api/policy-capabilities): "
                 "Policy API requires admin or superuser role."
             )
         ),
@@ -270,7 +279,7 @@ def test_build_policy_type_options_payload_requires_server_source_kind() -> None
 
 
 def test_build_policy_type_options_payload_returns_api_values(monkeypatch) -> None:
-    """Policy type options should resolve strictly from mud-server API inventory."""
+    """Policy type options should resolve strictly from mud-server capabilities."""
 
     monkeypatch.setattr(
         web_services,
@@ -284,11 +293,8 @@ def test_build_policy_type_options_payload_returns_api_values(monkeypatch) -> No
         web_services,
         "_fetch_mud_api_json",
         lambda **_kwargs: {
-            "items": [
-                {"policy_type": "prompt"},
-                {"policy_type": "species_block"},
-                {"policy_type": "prompt"},
-            ]
+            "allowed_policy_types": ["prompt", "species_block", "prompt"],
+            "allowed_statuses": ["draft", "active"],
         },
     )
 
@@ -299,7 +305,7 @@ def test_build_policy_type_options_payload_returns_api_values(monkeypatch) -> No
     )
     assert payload.items == ["prompt", "species_block"]
     assert payload.source == "mud_server_api"
-    assert payload.detail == "Policy types resolved from mud-server API inventory."
+    assert payload.detail == "Policy types resolved from mud-server policy capabilities."
 
 
 def test_build_policy_type_options_payload_raises_when_api_unavailable(
@@ -405,7 +411,7 @@ def test_build_policy_namespace_options_payload_raises_on_api_error(monkeypatch)
 
 
 def test_build_policy_status_options_payload_returns_api_values(monkeypatch) -> None:
-    """Status options should resolve strictly from mud-server API inventory."""
+    """Status options should resolve strictly from mud-server capabilities."""
 
     monkeypatch.setattr(
         web_services,
@@ -419,11 +425,8 @@ def test_build_policy_status_options_payload_returns_api_values(monkeypatch) -> 
         web_services,
         "_fetch_mud_api_json",
         lambda **_kwargs: {
-            "items": [
-                {"status": "active"},
-                {"status": "draft"},
-                {"status": "active"},
-            ]
+            "allowed_policy_types": ["species_block"],
+            "allowed_statuses": ["active", "draft", "active"],
         },
     )
     payload = web_services.build_policy_status_options_payload(
@@ -433,7 +436,7 @@ def test_build_policy_status_options_payload_returns_api_values(monkeypatch) -> 
     )
     assert payload.items == ["active", "draft"]
     assert payload.source == "mud_server_api"
-    assert payload.detail == "Statuses resolved from mud-server API inventory."
+    assert payload.detail == "Statuses resolved from mud-server policy capabilities."
 
 
 def test_build_policy_status_options_payload_raises_when_api_unavailable(monkeypatch) -> None:
@@ -609,11 +612,14 @@ def test_normalize_base_url_trims_and_handles_blank_values() -> None:
     assert web_services._normalize_base_url(None) == ""
 
 
-def test_extract_policy_types_from_inventory_payload_rejects_missing_items() -> None:
-    """Policy-type extraction should reject inventory payloads without an items list."""
+def test_extract_capabilities_string_list_rejects_missing_field() -> None:
+    """Capabilities extractor should reject payloads missing required list fields."""
 
-    with pytest.raises(ValueError, match="must include an 'items' list"):
-        web_services._extract_policy_types_from_inventory_payload({"not_items": []})
+    with pytest.raises(ValueError, match="must include 'allowed_policy_types'"):
+        web_services._extract_string_list_from_capabilities_payload(
+            payload={"not_items": []},
+            field_name="allowed_policy_types",
+        )
 
 
 def test_extract_namespaces_from_inventory_payload_rejects_missing_items() -> None:
@@ -623,28 +629,51 @@ def test_extract_namespaces_from_inventory_payload_rejects_missing_items() -> No
         web_services._extract_namespaces_from_inventory_payload({"not_items": []})
 
 
-def test_extract_statuses_from_inventory_payload_rejects_missing_items() -> None:
-    """Status extraction should reject inventory payloads without an items list."""
+def test_extract_capabilities_string_list_dedupes_and_normalizes() -> None:
+    """Capabilities extractor should normalize string lists and preserve first-seen order."""
 
-    with pytest.raises(ValueError, match="must include an 'items' list"):
-        web_services._extract_statuses_from_inventory_payload({"not_items": []})
-
-
-def test_extract_inventory_helpers_skip_non_object_items_and_dedupe() -> None:
-    """Inventory extractors should ignore non-object rows and keep first-seen order."""
-
-    types = web_services._extract_policy_types_from_inventory_payload(
-        {"items": [{"policy_type": "species_block"}, "invalid", {"policy_type": "species_block"}]}
+    types = web_services._extract_string_list_from_capabilities_payload(
+        payload={"allowed_policy_types": ["species_block", "", "species_block", "prompt"]},
+        field_name="allowed_policy_types",
     )
     namespaces = web_services._extract_namespaces_from_inventory_payload(
         {"items": [{"namespace": "image.blocks.species"}, 7, {"namespace": "image.blocks.species"}]}
     )
-    statuses = web_services._extract_statuses_from_inventory_payload(
-        {"items": [{"status": "draft"}, 7, {"status": "draft"}, {"status": "active"}]}
+    statuses = web_services._extract_string_list_from_capabilities_payload(
+        payload={"allowed_statuses": ["draft", "draft", "active", ""]},
+        field_name="allowed_statuses",
     )
-    assert types == ["species_block"]
+    assert types == ["species_block", "prompt"]
     assert namespaces == ["image.blocks.species"]
     assert statuses == ["draft", "active"]
+
+
+def test_fetch_policy_capabilities_payload_uses_canonical_endpoint(monkeypatch) -> None:
+    """Capability fetch helper should call mud-server /api/policy-capabilities exactly."""
+
+    captured_path = {"value": None}
+
+    def _fake_fetch(*, runtime, method, path, query_params):  # noqa: ANN001
+        captured_path["value"] = (runtime.base_url, method, path, query_params)
+        return {
+            "authorized": True,
+            "role": "admin",
+            "allowed_policy_types": ["species_block"],
+            "allowed_statuses": ["draft"],
+        }
+
+    monkeypatch.setattr(web_services, "_fetch_mud_api_json", _fake_fetch)
+
+    runtime = web_services._MudApiRuntimeConfig(base_url="http://mud.local:8000", session_id="s1")
+    payload = web_services._fetch_policy_capabilities_payload(runtime=runtime)
+
+    assert payload["authorized"] is True
+    assert captured_path["value"] == (
+        "http://mud.local:8000",
+        "GET",
+        "/api/policy-capabilities",
+        {},
+    )
 
 
 def test_load_local_namespaces_from_disk_filters_supported_paths(

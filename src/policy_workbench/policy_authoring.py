@@ -378,6 +378,9 @@ def _build_policy_content_from_raw(
     if selector.policy_type == "prompt":
         return {"text": raw_content.strip()}
 
+    if selector.policy_type == "image_block":
+        return {"text": raw_content.strip()}
+
     if selector.policy_type == "tone_profile":
         try:
             parsed = json.loads(raw_content)
@@ -400,7 +403,8 @@ def _build_policy_content_from_raw(
 
     raise ValueError(
         "Policy save currently supports only policy_type values: "
-        "'species_block', 'prompt', 'tone_profile', 'descriptor_layer', 'registry'."
+        "'species_block', 'prompt', 'image_block', 'tone_profile', "
+        "'descriptor_layer', 'registry'."
     )
 
 

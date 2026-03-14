@@ -253,17 +253,59 @@ def test_build_policy_content_from_raw_accepts_tone_profile_object_payload() -> 
     assert content == {"prompt_block": "Etched metallic texture."}
 
 
+def test_save_policy_variant_from_raw_content_supports_image_block_text(monkeypatch) -> None:
+    """Generic save helper should serialize image-block text into canonical content payload."""
+    selector = PolicySelector(
+        policy_type="image_block",
+        namespace="image.blocks.pose",
+        policy_key="standing_front",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 12}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 5, "content_hash": "hash-image-block"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 5)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content="  front-facing neutral stance  \n",
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "image_block:image.blocks.pose:standing_front"
+    assert result.policy_version == 5
+    assert result.content_hash == "hash-image-block"
+    assert result.validation_run_id == 12
+    assert captured_payloads[0]["content"] == {"text": "front-facing neutral stance"}
+    assert captured_payloads[1]["content"] == {"text": "front-facing neutral stance"}
+
+
 def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() -> None:
     """Generic save helper should reject policy types outside implemented mappings."""
     with pytest.raises(ValueError, match="supports only policy_type values"):
         policy_authoring.save_policy_variant_from_raw_content(
             selector=PolicySelector(
-                policy_type="image_block",
-                namespace="image.blocks",
-                policy_key="portrait",
+                policy_type="manifest_bundle",
+                namespace="image.manifests",
+                policy_key="default",
                 variant="v1",
             ),
-            raw_content="text: portrait",
+            raw_content='{"references":[]}',
             schema_version="1.0",
             status="draft",
             activate=False,

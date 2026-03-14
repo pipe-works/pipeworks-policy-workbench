@@ -12,6 +12,14 @@ import {
 
 let _fetchJson = null;
 let _setStatus = null;
+const AUTHORABLE_POLICY_TYPES = new Set([
+  "species_block",
+  "prompt",
+  "image_block",
+  "tone_profile",
+  "descriptor_layer",
+  "registry",
+]);
 
 export function configureInventory({ fetchJson, setStatus }) {
   _fetchJson = fetchJson;
@@ -55,6 +63,20 @@ function renderPolicyStatusOptions(payload) {
     allLabel: "All statuses",
     options: Array.isArray(payload?.items) ? payload.items : [],
   });
+}
+
+function renderPolicyStatusOptionCounts(statusCounts = new Map()) {
+  if (!dom.inventoryStatus) {
+    return;
+  }
+  for (const option of Array.from(dom.inventoryStatus.options || [])) {
+    const value = String(option.value || "").trim();
+    if (!value) {
+      continue;
+    }
+    const count = statusCounts.get(value) || 0;
+    option.textContent = `${value} (${count})`;
+  }
 }
 
 function renderSelectOptions({
@@ -166,6 +188,19 @@ function buildPolicyInventoryQueryString() {
   return query.toString();
 }
 
+function buildStatusCountsQueryString() {
+  const query = new URLSearchParams();
+  const policyType = (dom.inventoryPolicyType?.value || "").trim();
+  const namespace = (dom.inventoryNamespace?.value || "").trim();
+  if (policyType) {
+    query.set("policy_type", policyType);
+  }
+  if (namespace) {
+    query.set("namespace", namespace);
+  }
+  return query.toString();
+}
+
 export function buildPolicySelectorLabel(item) {
   return `${item.policy_type}:${item.namespace}:${item.policy_key}:${item.variant}`;
 }
@@ -177,20 +212,95 @@ function selectedPolicyKey() {
   return `${state.selectedPolicyRecord.policy_id}:${state.selectedPolicyRecord.variant}`;
 }
 
+function isAuthorablePolicyType(policyType) {
+  return AUTHORABLE_POLICY_TYPES.has(String(policyType || "").trim());
+}
+
+function _setCurrentObjectField(field, value) {
+  if (!field) {
+    return;
+  }
+  const normalized = String(value || "").trim();
+  field.textContent = normalized || "--";
+}
+
+function updateCurrentObjectActivationState() {
+  if (!dom.currentPolicyActivation) {
+    return;
+  }
+  if (!state.selectedPolicyRecord) {
+    dom.currentPolicyActivation.textContent = "Not activated";
+    return;
+  }
+  const selectedPolicyId = String(state.selectedPolicyRecord.policy_id || "").trim();
+  const selectedVariant = String(state.selectedPolicyRecord.variant || "").trim();
+  const activationItems = Array.isArray(state.latestActivationPayload?.items)
+    ? state.latestActivationPayload.items
+    : [];
+  const activationEntry = activationItems.find(
+    (item) => String(item?.policy_id || "").trim() === selectedPolicyId
+  );
+  if (!activationEntry) {
+    dom.currentPolicyActivation.textContent = "Not activated in selected scope";
+    return;
+  }
+  const activatedVariant = String(activationEntry.variant || "").trim();
+  if (activatedVariant === selectedVariant) {
+    dom.currentPolicyActivation.textContent = `Activated variant: ${activatedVariant}`;
+    return;
+  }
+  dom.currentPolicyActivation.textContent =
+    `Activated variant: ${activatedVariant} (selected: ${selectedVariant})`;
+}
+
+function clearCurrentObjectPanel() {
+  _setCurrentObjectField(dom.currentPolicyId, "");
+  _setCurrentObjectField(dom.currentPolicyType, "");
+  _setCurrentObjectField(dom.currentPolicyNamespace, "");
+  _setCurrentObjectField(dom.currentPolicyKey, "");
+  _setCurrentObjectField(dom.currentPolicyVariant, "");
+  _setCurrentObjectField(dom.currentPolicyStatus, "");
+  _setCurrentObjectField(dom.currentPolicyVersion, "");
+  _setCurrentObjectField(dom.currentPolicyContentHash, "");
+  _setCurrentObjectField(dom.currentPolicyUpdatedAt, "");
+  _setCurrentObjectField(dom.currentPolicyUpdatedBy, "");
+  updateCurrentObjectActivationState();
+}
+
+function updateCurrentObjectPanel(policy) {
+  if (!policy) {
+    clearCurrentObjectPanel();
+    return;
+  }
+  _setCurrentObjectField(dom.currentPolicyId, policy.policy_id);
+  _setCurrentObjectField(dom.currentPolicyType, policy.policy_type);
+  _setCurrentObjectField(dom.currentPolicyNamespace, policy.namespace);
+  _setCurrentObjectField(dom.currentPolicyKey, policy.policy_key);
+  _setCurrentObjectField(dom.currentPolicyVariant, policy.variant);
+  _setCurrentObjectField(dom.currentPolicyStatus, policy.status);
+  _setCurrentObjectField(dom.currentPolicyVersion, String(policy.policy_version || ""));
+  _setCurrentObjectField(dom.currentPolicyContentHash, policy.content_hash);
+  _setCurrentObjectField(dom.currentPolicyUpdatedAt, policy.updated_at);
+  _setCurrentObjectField(dom.currentPolicyUpdatedBy, policy.updated_by);
+  updateCurrentObjectActivationState();
+}
+
 function setEditorFromPolicyRecord(policy) {
+  const isAuthorable = isAuthorablePolicyType(policy.policy_type);
   state.selectedPolicyRecord = policy;
   state.selectedArtifact = {
     policy_type: policy.policy_type,
     namespace: policy.namespace,
     policy_key: policy.policy_key,
     variant: policy.variant,
-    is_authorable: true,
+    is_authorable: isAuthorable,
   };
-  setEditorReadOnlyMode(false);
-  dom.editorPath.textContent = `${policy.policy_id}:${policy.variant} · api-first`;
+  setEditorReadOnlyMode(!isAuthorable);
+  dom.editorPath.textContent = `${policy.policy_id}:${policy.variant} · db-object`;
   dom.editorPath.title =
     `${policy.policy_id}:${policy.variant}\nstatus=${policy.status} version=${policy.policy_version}`;
   dom.fileEditor.value = buildRawEditorContentFromPolicy(policy);
+  updateCurrentObjectPanel(policy);
   setSourceBadges();
   setServerFeatureAvailability();
 }
@@ -207,6 +317,9 @@ function buildRawEditorContentFromPolicy(policy) {
     return buildSpeciesYamlFromText(content.text || "");
   }
   if (policy.policy_type === "prompt") {
+    return String(content.text || "");
+  }
+  if (policy.policy_type === "image_block" || policy.policy_type === "clothing_block") {
     return String(content.text || "");
   }
   return JSON.stringify(content, null, 2);
@@ -271,6 +384,30 @@ export function renderPolicyInventory(items) {
   }
 }
 
+async function refreshPolicyStatusCounts() {
+  requireInventoryDeps();
+  if (!isServerAuthorized()) {
+    renderPolicyStatusOptionCounts(new Map());
+    return;
+  }
+  try {
+    const query = buildStatusCountsQueryString();
+    const suffix = query ? `?${query}` : "";
+    const payload = await _fetchJson(sessionScopedUrl(`/api/policies${suffix}`));
+    const statusCounts = new Map();
+    for (const item of payload.items || []) {
+      const statusValue = String(item?.status || "").trim();
+      if (!statusValue) {
+        continue;
+      }
+      statusCounts.set(statusValue, (statusCounts.get(statusValue) || 0) + 1);
+    }
+    renderPolicyStatusOptionCounts(statusCounts);
+  } catch (_error) {
+    renderPolicyStatusOptionCounts(new Map());
+  }
+}
+
 export async function refreshPolicyInventory() {
   requireInventoryDeps();
   if (!isServerAuthorized()) {
@@ -280,6 +417,7 @@ export async function refreshPolicyInventory() {
   }
   _setStatus("Loading API-first policy inventory...");
   try {
+    await refreshPolicyStatusCounts();
     const query = buildPolicyInventoryQueryString();
     const suffix = query ? `?${query}` : "";
     const payload = await _fetchJson(sessionScopedUrl(`/api/policies${suffix}`));
@@ -308,7 +446,13 @@ export async function loadPolicyObject(policyId, variant = "") {
     );
     setEditorFromPolicyRecord(payload);
     renderPolicyInventory(state.inventoryItems);
-    _setStatus(`Loaded ${payload.policy_id}:${payload.variant} from mud-server API.`);
+    if (state.selectedArtifact?.is_authorable) {
+      _setStatus(`Loaded ${payload.policy_id}:${payload.variant} from mud-server API.`);
+    } else {
+      _setStatus(
+        `Loaded ${payload.policy_id}:${payload.variant} from mud-server API (read-only: save not yet supported for ${payload.policy_type}).`
+      );
+    }
   } catch (error) {
     _setStatus(`Policy object load failed: ${error.message}`);
   }
@@ -351,6 +495,7 @@ export function renderActivationMessage(message, tone = "info") {
 
 function renderActivationScopePayload(payload) {
   state.latestActivationPayload = payload;
+  updateCurrentObjectActivationState();
   if (!dom.activationList) {
     return;
   }
@@ -436,7 +581,10 @@ export async function refreshActivationScope({ silent = false } = {}) {
 
 export function renderUnauthorizedServerState(runtimeAuth = null) {
   state.inventoryItems = [];
+  state.selectedPolicyRecord = null;
+  state.selectedArtifact = null;
   renderPolicyInventory([]);
+  clearCurrentObjectPanel();
   const status = runtimeAuth?.status || runtimeAuthStatus();
   if (status === "forbidden") {
     renderActivationMessage("Server mode connected, but session role is not admin/superuser.");

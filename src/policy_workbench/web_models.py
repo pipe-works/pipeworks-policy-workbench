@@ -84,7 +84,7 @@ class RuntimeModeRequest(BaseModel):
 
 
 class RuntimeAuthResponse(BaseModel):
-    """Runtime auth probe result for server-backed policy operations.
+    """Runtime auth/capability probe result for server-backed policy operations.
 
     ``access_granted`` is ``True`` only when the active session can call
     mud-server policy APIs, which are restricted to admin/superuser roles.

@@ -245,7 +245,7 @@ def test_policy_types_endpoint_returns_service_payload(tmp_path: Path, monkeypat
         return PolicyTypeOptionsResponse(
             items=["species_block", "registry", "prompt"],
             source="mud_server_api",
-            detail="Policy types resolved from mud-server API inventory.",
+            detail="Policy types resolved from mud-server policy capabilities.",
         )
 
     monkeypatch.setattr(
@@ -312,7 +312,7 @@ def test_policy_statuses_endpoint_returns_service_payload(tmp_path: Path, monkey
         return PolicyTypeOptionsResponse(
             items=["draft", "candidate", "active", "archived"],
             source="mud_server_api",
-            detail="Statuses resolved from mud-server API inventory.",
+            detail="Statuses resolved from mud-server policy capabilities.",
         )
 
     monkeypatch.setattr(

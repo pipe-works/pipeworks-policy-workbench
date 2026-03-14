@@ -64,7 +64,7 @@
     <div class="inventory-shell" aria-label="Policy inventory">
       <div class="panel-header-stack">
         <div class="panel-header-title-row">
-          <h2 class="panel__heading">Policy Inventory</h2>
+          <h2 class="panel__heading">Canonical Policy Objects (DB)</h2>
         </div>
         <div class="panel-header-row panel-header-row--meta">
           <div class="panel-header-main">
@@ -105,11 +105,28 @@
 
     <div class="panel-header-row">
       <div class="panel-header-main">
-        <h2 class="panel__heading">Raw Editor</h2>
+        <h2 class="panel__heading">Policy Object Content (DB)</h2>
         <span id="editor-source-badge" class="badge badge--muted">No selection</span>
       </div>
-      <span id="editor-path" class="badge badge--muted">No file selected</span>
+      <span id="editor-path" class="badge badge--muted">No policy selected</span>
     </div>
+
+    <section class="current-object-shell" aria-label="Current selected policy object">
+      <h3 class="panel__heading">Current Object</h3>
+      <dl class="current-object-grid">
+        <div class="current-object-field"><dt>Policy ID</dt><dd id="current-policy-id">--</dd></div>
+        <div class="current-object-field"><dt>Type</dt><dd id="current-policy-type">--</dd></div>
+        <div class="current-object-field"><dt>Namespace</dt><dd id="current-policy-namespace">--</dd></div>
+        <div class="current-object-field"><dt>Key</dt><dd id="current-policy-key">--</dd></div>
+        <div class="current-object-field"><dt>Variant</dt><dd id="current-policy-variant">--</dd></div>
+        <div class="current-object-field"><dt>Status</dt><dd id="current-policy-status">--</dd></div>
+        <div class="current-object-field"><dt>Version</dt><dd id="current-policy-version">--</dd></div>
+        <div class="current-object-field"><dt>Content Hash</dt><dd id="current-policy-content-hash">--</dd></div>
+        <div class="current-object-field"><dt>Updated At</dt><dd id="current-policy-updated-at">--</dd></div>
+        <div class="current-object-field"><dt>Updated By</dt><dd id="current-policy-updated-by">--</dd></div>
+        <div class="current-object-field"><dt>Activation</dt><dd id="current-policy-activation">Not activated</dd></div>
+      </dl>
+    </section>
 
     <textarea
       id="file-editor"
@@ -155,10 +172,10 @@
     </section>
   </section>
 
-  <section class="panel panel--right" aria-label="Validation Panel">
-    <h2 class="panel__heading">Validation</h2>
+  <section class="panel panel--right" aria-label="Mirror Validation Panel">
+    <h2 class="panel__heading">Mirror Validation (Diagnostics)</h2>
     <div class="panel-header-row">
-      <button id="btn-run-validation" class="btn btn--secondary" type="button">Run Validation</button>
+      <button id="btn-run-validation" class="btn btn--secondary" type="button">Run Mirror Validation</button>
       <span id="validation-counts" class="meta-line">errors=0 warnings=0 info=0</span>
     </div>
     <div class="list-shell list-shell--compact">

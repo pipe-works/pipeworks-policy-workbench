@@ -455,7 +455,7 @@ def create_web_app(
 
     @app.get("/api/validate", response_model=ValidationResponse)
     async def api_validate(request: Request) -> ValidationResponse:
-        """Return validation counts and issue rows for current source tree."""
+        """Return mirror/local validation diagnostics for current source tree."""
 
         try:
             _reject_legacy_source_overrides(request)
