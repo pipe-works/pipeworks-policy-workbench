@@ -105,6 +105,8 @@ def fetch_mud_api_json(
 ) -> dict[str, object]:
     """Issue one mud-server API request with session injection."""
     normalized_query = {key: value for key, value in query_params.items() if value}
+    # Force session_id at transport boundary so authenticated routes cannot
+    # accidentally become anonymous due to missing upstream query params.
     normalized_query["session_id"] = runtime.session_id
     query = urlencode(normalized_query, doseq=False)
     url = f"{runtime.base_url}{path}?{query}" if query else f"{runtime.base_url}{path}"

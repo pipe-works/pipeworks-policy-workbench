@@ -82,6 +82,9 @@ def build_policy_inventory_payload(
     for raw_item in raw_items:
         if not isinstance(raw_item, dict):
             raise ValueError("Mud policy inventory items must be JSON objects.")
+        # Validate against the full detail schema first, then project to summary.
+        # This keeps inventory rows aligned with canonical object contracts while
+        # allowing the UI list view to return only the fields it needs.
         detail = PolicyObjectDetailResponse.model_validate(raw_item)
         items.append(
             PolicyObjectSummaryResponse(
@@ -131,6 +134,8 @@ def build_policy_object_detail_payload(
     payload = fetch_mud_api_json(
         runtime=runtime,
         method="GET",
+        # Policy IDs include ":" and may include "/" in legacy-compatible
+        # selectors, so quote the full identifier to keep route parsing stable.
         path=f"/api/policies/{quote(policy_id, safe='')}",
         query_params=query_params,
     )
