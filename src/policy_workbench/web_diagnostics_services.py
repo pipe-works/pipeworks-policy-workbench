@@ -206,6 +206,9 @@ def build_hash_status_payload(
             target_entry = target_by_path.get(relative_path)
             if target_entry is None:
                 missing_count += 1
+                # Missing canonical-managed files are represented by a stable
+                # synthetic hash marker so tree-hash comparisons remain
+                # deterministic across hosts and runs.
                 projected_entries.append(
                     PolicyHashEntry(
                         relative_path=relative_path,
@@ -239,6 +242,9 @@ def build_hash_status_payload(
     if canonical_snapshot is None:
         status = "canonical_unavailable"
     else:
+        # Drift is a strict hash mismatch against canonical snapshot root hash;
+        # this intentionally ignores per-file reason details so the top-level
+        # state remains a simple availability/alignment signal for operators.
         status = "ok" if all(target.matches_canonical for target in target_statuses) else "drift"
 
     return HashStatusResponse(
@@ -362,6 +368,8 @@ def compute_tree_hash(
         }
         for entry in entries
     ]
+    # Sort before hashing to make fallback behavior independent of filesystem
+    # traversal order or caller-provided entry ordering.
     payload_entries.sort(key=lambda item: str(item["relative_path"]))
     return str(compute_payload_hash({"hash_version": hash_version, "entries": payload_entries}))
 

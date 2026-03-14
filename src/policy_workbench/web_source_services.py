@@ -140,6 +140,9 @@ def build_validation_payload(
     """Build serialized validation payload for right-panel reporting."""
 
     snapshot = build_policy_tree_snapshot_fn(source_root)
+    # Restrict validation scope to editor-supported artifacts so diagnostics
+    # reflect the active authoring surface and do not report noise from
+    # intentionally out-of-scope files.
     report = validate_snapshot_fn(filter_snapshot_to_supported_files(snapshot))
 
     issues = [
