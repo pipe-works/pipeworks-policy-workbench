@@ -15,7 +15,6 @@ _WORKBENCH_DOM = _WORKBENCH_MODULE_DIR / "dom.js"
 _WORKBENCH_INVENTORY = _WORKBENCH_MODULE_DIR / "inventory.js"
 _WORKBENCH_RUNTIME = _WORKBENCH_MODULE_DIR / "runtime.js"
 _WORKBENCH_RUNTIME_SESSION = _WORKBENCH_MODULE_DIR / "runtime_session.js"
-_WORKBENCH_TREE = _WORKBENCH_MODULE_DIR / "tree.js"
 _WORKBENCH_BOOT = _WORKBENCH_MODULE_DIR / "boot.js"
 _WORKBENCH_EDITOR_ACTIONS = _WORKBENCH_MODULE_DIR / "editor_actions.js"
 _WORKBENCH_VALIDATION = _WORKBENCH_MODULE_DIR / "validation.js"
@@ -54,7 +53,6 @@ def test_dom_keys_are_used_by_app_module() -> None:
         + _read(_WORKBENCH_RUNTIME)
         + _read(_WORKBENCH_INVENTORY)
         + _read(_WORKBENCH_RUNTIME_SESSION)
-        + _read(_WORKBENCH_TREE)
         + _read(_WORKBENCH_BOOT)
         + _read(_WORKBENCH_EDITOR_ACTIONS)
         + _read(_WORKBENCH_VALIDATION)
@@ -71,7 +69,6 @@ def test_legacy_runtime_label_hooks_are_not_reintroduced() -> None:
         + _read(_WORKBENCH_INVENTORY)
         + _read(_WORKBENCH_RUNTIME)
         + _read(_WORKBENCH_RUNTIME_SESSION)
-        + _read(_WORKBENCH_TREE)
         + _read(_WORKBENCH_BOOT)
         + _read(_WORKBENCH_EDITOR_ACTIONS)
         + _read(_WORKBENCH_VALIDATION)

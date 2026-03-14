@@ -1,5 +1,4 @@
 export const dom = {
-  workbenchGrid: document.getElementById("workbench-grid"),
   runtimeModeBadge: document.getElementById("runtime-mode-badge"),
   runtimeAuthBadge: document.getElementById("runtime-auth-badge"),
   runtimeModeSelect: document.getElementById("runtime-mode-select"),
