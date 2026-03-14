@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn, TypeVar
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -60,6 +62,7 @@ from .web_services import (
 _HERE = Path(__file__).resolve().parent
 _TEMPLATES_DIR = _HERE / "templates"
 _STATIC_DIR = _HERE / "static"
+_ResponseT = TypeVar("_ResponseT")
 
 
 def create_web_app(
@@ -103,6 +106,44 @@ def create_web_app(
         if "Invalid or expired session" in detail or "Invalid session user" in detail:
             return 401
         return 400
+
+    def _raise_mud_service_http_error(exc: ValueError | OSError) -> NoReturn:
+        """Raise one normalized HTTPException for mud-service failures."""
+
+        detail = str(exc)
+        raise HTTPException(
+            status_code=_status_code_for_mud_api_error(detail),
+            detail=detail,
+        ) from exc
+
+    def _run_mud_service(call: Callable[[], _ResponseT]) -> _ResponseT:
+        """Execute one mud-service call and normalize ValueError/OSError mapping."""
+
+        try:
+            return call()
+        except (ValueError, OSError) as exc:
+            _raise_mud_service_http_error(exc)
+
+    def _run_server_api_route(call: Callable[[str], _ResponseT]) -> _ResponseT:
+        """Resolve active server URL and execute one mud-server-backed route action."""
+
+        try:
+            server_api_url = require_server_api_url()
+            return _run_mud_service(lambda: call(server_api_url))
+        except RuntimeModeUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    def _resolve_source_root_for_request(request: Request) -> Path:
+        """Resolve source root for source-backed routes with legacy override rejection."""
+
+        _reject_legacy_source_overrides(request)
+        try:
+            return resolve_source_root_for_web(
+                root_override=source_root_override,
+                map_path_override=map_path_override,
+            )
+        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def _build_runtime_mode_response() -> RuntimeModeResponse:
         """Return runtime mode payload serialized to API response models."""
@@ -174,8 +215,8 @@ def create_web_app(
     async def api_runtime_login(payload: RuntimeLoginRequest) -> RuntimeLoginResponse:
         """Authenticate to active mud-server profile and return session bootstrap data."""
         state = get_runtime_mode()
-        try:
-            return build_runtime_login_payload(
+        return _run_mud_service(
+            lambda: build_runtime_login_payload(
                 mode_key=state.mode_key,
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
@@ -183,11 +224,7 @@ def create_web_app(
                 password=payload.password,
                 base_url_override=state.active_server_url,
             )
-        except ValueError as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policy-types", response_model=PolicyTypeOptionsResponse)
     async def api_policy_types(
@@ -195,18 +232,14 @@ def create_web_app(
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy-type options for inventory filtering."""
         state = get_runtime_mode()
-        try:
-            return build_policy_type_options_payload(
+        return _run_mud_service(
+            lambda: build_policy_type_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
                 session_id_override=session_id,
                 base_url_override=state.active_server_url,
             )
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policy-namespaces", response_model=PolicyTypeOptionsResponse)
     async def api_policy_namespaces(
@@ -215,19 +248,15 @@ def create_web_app(
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy namespace options for inventory filtering."""
         state = get_runtime_mode()
-        try:
-            return build_policy_namespace_options_payload(
+        return _run_mud_service(
+            lambda: build_policy_namespace_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
                 session_id_override=session_id,
                 policy_type=policy_type,
                 base_url_override=state.active_server_url,
             )
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policy-statuses", response_model=PolicyTypeOptionsResponse)
     async def api_policy_statuses(
@@ -235,18 +264,14 @@ def create_web_app(
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy status options for inventory filtering."""
         state = get_runtime_mode()
-        try:
-            return build_policy_status_options_payload(
+        return _run_mud_service(
+            lambda: build_policy_status_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
                 session_id_override=session_id,
                 base_url_override=state.active_server_url,
             )
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
@@ -257,22 +282,15 @@ def create_web_app(
     ) -> PolicyInventoryResponse:
         """Return API-first policy inventory list from mud-server canonical API."""
 
-        try:
-            server_api_url = require_server_api_url()
-            return build_policy_inventory_payload(
+        return _run_server_api_route(
+            lambda server_api_url: build_policy_inventory_payload(
                 policy_type=policy_type,
                 namespace=namespace,
                 status=status,
                 session_id_override=session_id,
                 base_url_override=server_api_url,
             )
-        except RuntimeModeUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policies/{policy_id}", response_model=PolicyObjectDetailResponse)
     async def api_policy_detail(
@@ -282,21 +300,14 @@ def create_web_app(
     ) -> PolicyObjectDetailResponse:
         """Return one policy object detail payload from mud-server canonical API."""
 
-        try:
-            server_api_url = require_server_api_url()
-            return build_policy_object_detail_payload(
+        return _run_server_api_route(
+            lambda server_api_url: build_policy_object_detail_payload(
                 policy_id=policy_id,
                 variant=variant,
                 session_id_override=session_id,
                 base_url_override=server_api_url,
             )
-        except RuntimeModeUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/policy-activations-live", response_model=PolicyActivationScopeResponse)
     async def api_policy_activations_live(
@@ -306,21 +317,14 @@ def create_web_app(
     ) -> PolicyActivationScopeResponse:
         """Return scoped activation mappings from mud-server canonical API."""
 
-        try:
-            server_api_url = require_server_api_url()
-            return build_policy_activation_scope_payload(
+        return _run_server_api_route(
+            lambda server_api_url: build_policy_activation_scope_payload(
                 scope=scope,
                 effective=effective,
                 session_id_override=session_id,
                 base_url_override=server_api_url,
             )
-        except RuntimeModeUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get(
         "/api/policy-publish-runs/{publish_run_id}",
@@ -332,34 +336,20 @@ def create_web_app(
     ) -> PolicyPublishRunProxyResponse:
         """Return one publish run payload from mud-server canonical publish API."""
 
-        try:
-            server_api_url = require_server_api_url()
-            return build_policy_publish_run_payload(
+        return _run_server_api_route(
+            lambda server_api_url: build_policy_publish_run_payload(
                 publish_run_id=publish_run_id,
                 session_id_override=session_id,
                 base_url_override=server_api_url,
             )
-        except RuntimeModeUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except (ValueError, OSError) as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+        )
 
     @app.get("/api/tree", response_model=PolicyTreeResponse)
     async def api_tree(request: Request) -> PolicyTreeResponse:
         """Return canonical policy tree entries for the browser panel."""
 
-        try:
-            _reject_legacy_source_overrides(request)
-            source_root = resolve_source_root_for_web(
-                root_override=source_root_override,
-                map_path_override=map_path_override,
-            )
-            return build_tree_payload(source_root)
-        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        source_root = _resolve_source_root_for_request(request)
+        return build_tree_payload(source_root)
 
     @app.get("/api/file", response_model=PolicyFileResponse)
     async def api_file_read(
@@ -368,22 +358,19 @@ def create_web_app(
     ) -> PolicyFileResponse:
         """Read one source policy file by relative path."""
 
+        source_root = _resolve_source_root_for_request(request)
         try:
-            _reject_legacy_source_overrides(request)
-            source_root = resolve_source_root_for_web(
-                root_override=source_root_override,
-                map_path_override=map_path_override,
-            )
             content = read_policy_file(source_root, relative_path)
-            return PolicyFileResponse(
-                source_root=str(source_root),
-                relative_path=relative_path,
-                content=content,
-            )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except (IsADirectoryError, NotADirectoryError, ValueError, OSError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        return PolicyFileResponse(
+            source_root=str(source_root),
+            relative_path=relative_path,
+            content=content,
+        )
 
     @app.put("/api/file", response_model=PolicyFileUpdateResponse)
     async def api_file_write(
@@ -419,8 +406,8 @@ def create_web_app(
             policy_key=payload.policy_key,
             variant=payload.variant,
         )
-        try:
-            server_api_url = require_server_api_url()
+
+        def _build_save_response(server_api_url: str) -> PolicySaveResponse:
             runtime_config = resolve_runtime_config(
                 session_id_override=payload.session_id,
                 base_url_override=server_api_url,
@@ -445,26 +432,13 @@ def create_web_app(
                 activated=payload.activate,
                 activation_audit_event_id=result.activation_audit_event_id,
             )
-        except RuntimeModeUnavailableError as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            detail = str(exc)
-            raise HTTPException(
-                status_code=_status_code_for_mud_api_error(detail), detail=detail
-            ) from exc
+
+        return _run_server_api_route(_build_save_response)
 
     @app.get("/api/validate", response_model=ValidationResponse)
     async def api_validate(request: Request) -> ValidationResponse:
         """Return mirror/local validation diagnostics for current source tree."""
-
-        try:
-            _reject_legacy_source_overrides(request)
-            source_root = resolve_source_root_for_web(
-                root_override=source_root_override,
-                map_path_override=map_path_override,
-            )
-            return build_validation_payload(source_root)
-        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        source_root = _resolve_source_root_for_request(request)
+        return build_validation_payload(source_root)
 
     return app
