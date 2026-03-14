@@ -158,7 +158,17 @@ def build_validation_payload(
         IssueLevel.INFO.value: report.count(IssueLevel.INFO),
     }
 
-    return ValidationResponse(source_root=str(report.root), counts=counts, issues=issues)
+    return ValidationResponse(
+        source_root=str(report.root),
+        source_kind="local_mirror_snapshot",
+        canonical_authority="mud_server_policy_api",
+        detail=(
+            "Validation inspects local mirror files only; canonical policy authority "
+            "remains mud-server policy APIs."
+        ),
+        counts=counts,
+        issues=issues,
+    )
 
 
 def resolve_file_under_root(source_root: Path, relative_path: str) -> Path:

@@ -215,6 +215,9 @@ class ValidationResponse(BaseModel):
     """Validation summary payload returned to the web UI."""
 
     source_root: str
+    source_kind: str
+    canonical_authority: str
+    detail: str
     counts: dict[str, int]
     issues: list[ValidationIssueResponse]
 

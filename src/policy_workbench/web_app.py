@@ -340,12 +340,7 @@ def create_web_app(
 
     @app.get("/api/tree")
     async def api_tree():
-        """Legacy endpoint intentionally disabled in Phase 3.
-
-        # BREAKING-CHANGE-IN-PROGRESS: disable legacy tree/file API routes;
-        # Affects: /api/tree, /api/file; Remove when: Phase 3 endpoint removals
-        # and operator docs/changelog updates are complete; Phase: 3
-        """
+        """Legacy endpoint removed from API-first surface and fails closed."""
 
         raise HTTPException(
             status_code=410,
