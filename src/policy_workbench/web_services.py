@@ -17,6 +17,7 @@ from pipeworks_ipc.hashing import compute_payload_hash
 
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
+from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
 from .pathing import resolve_policy_root
 from .policy_authoring import selector_from_relative_path
 from .sync_models import SyncAction, SyncActionType, SyncPlan
@@ -93,13 +94,9 @@ class _PolicyHashEntry:
     content_hash: str
 
 
-@dataclass(frozen=True, slots=True)
-class _MudApiRuntimeConfig:
-    """Runtime config used for mud-server API-first inventory proxy calls."""
-
-    base_url: str
-    session_id: str
-    timeout_seconds: float = 8.0
+# Keep private alias for test/backward compatibility while shared resolver is
+# adopted across modules.
+_MudApiRuntimeConfig = MudApiRuntimeConfig
 
 
 def resolve_source_root_for_web(
@@ -818,25 +815,15 @@ def _resolve_mud_api_runtime_config(
     base_url_override: str | None = None,
 ) -> _MudApiRuntimeConfig:
     """Resolve mud-server API runtime config from env vars and optional session override."""
-    base_candidate = (
-        base_url_override
-        if base_url_override is not None
-        else os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL)
+    return resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+        base_url_env_var=_MUD_API_BASE_URL_ENV,
+        session_id_env_var=_MUD_API_SESSION_ID_ENV,
+        default_base_url=_DEFAULT_MUD_API_BASE_URL,
+        empty_base_url_error="Mud API base URL must not be empty.",
+        missing_session_error="Mud API session id is required (PW_POLICY_MUD_SESSION_ID).",
     )
-    base_url = (base_candidate or "").strip().rstrip("/")
-    if not base_url:
-        raise ValueError("Mud API base URL must not be empty.")
-
-    session_candidate = (
-        session_id_override
-        if session_id_override is not None
-        else os.getenv(_MUD_API_SESSION_ID_ENV, "")
-    )
-    session_id = (session_candidate or "").strip()
-    if not session_id:
-        raise ValueError("Mud API session id is required (PW_POLICY_MUD_SESSION_ID).")
-
-    return _MudApiRuntimeConfig(base_url=base_url, session_id=session_id)
 
 
 def _normalize_base_url(value: str | None) -> str:
