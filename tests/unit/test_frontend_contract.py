@@ -17,7 +17,6 @@ _WORKBENCH_RUNTIME = _WORKBENCH_MODULE_DIR / "runtime.js"
 _WORKBENCH_RUNTIME_SESSION = _WORKBENCH_MODULE_DIR / "runtime_session.js"
 _WORKBENCH_BOOT = _WORKBENCH_MODULE_DIR / "boot.js"
 _WORKBENCH_EDITOR_ACTIONS = _WORKBENCH_MODULE_DIR / "editor_actions.js"
-_WORKBENCH_VALIDATION = _WORKBENCH_MODULE_DIR / "validation.js"
 
 
 def _read(path: Path) -> str:
@@ -55,7 +54,6 @@ def test_dom_keys_are_used_by_app_module() -> None:
         + _read(_WORKBENCH_RUNTIME_SESSION)
         + _read(_WORKBENCH_BOOT)
         + _read(_WORKBENCH_EDITOR_ACTIONS)
-        + _read(_WORKBENCH_VALIDATION)
     )
     unused = sorted(key for key in _dom_keys() if f"dom.{key}" not in consumer_sources)
     assert not unused, f"Unused DOM keys in dom.js: {unused}"
@@ -71,7 +69,6 @@ def test_legacy_runtime_label_hooks_are_not_reintroduced() -> None:
         + _read(_WORKBENCH_RUNTIME_SESSION)
         + _read(_WORKBENCH_BOOT)
         + _read(_WORKBENCH_EDITOR_ACTIONS)
-        + _read(_WORKBENCH_VALIDATION)
         + _read(_WORKBENCH_DOM)
     )
     assert "runtime-mode-url-label" not in combined

@@ -1,4 +1,4 @@
-"""Unit tests for source/tree/validation web service helpers."""
+"""Unit tests for source/tree/file web service helpers."""
 
 from __future__ import annotations
 
@@ -8,83 +8,11 @@ import pytest
 
 from policy_workbench import web_source_services
 from policy_workbench.models import (
-    IssueLevel,
     PolicyArtifact,
     PolicyFileRole,
     PolicyTreeSnapshot,
-    ValidationIssue,
-    ValidationReport,
 )
 from policy_workbench.policy_authoring import PolicySelector
-
-
-def test_resolve_source_root_for_web_prefers_explicit_override() -> None:
-    """Explicit source root should short-circuit mirror-map resolution."""
-
-    calls: list[str | None] = []
-
-    def _resolve_policy_root(*, explicit_root: str | None) -> Path:
-        calls.append(explicit_root)
-        return Path("/resolved/explicit")
-
-    resolved = web_source_services.resolve_source_root_for_web(
-        root_override="/custom/root",
-        map_path_override="ignored.yaml",
-        resolve_policy_root_fn=_resolve_policy_root,
-        resolve_mirror_map_path_fn=lambda *, explicit_map_path: (_ for _ in ()).throw(
-            AssertionError("mirror-map path resolver should not be called")
-        ),
-        load_mirror_map_fn=lambda _path: (_ for _ in ()).throw(
-            AssertionError("mirror-map loader should not be called")
-        ),
-    )
-
-    assert resolved == Path("/resolved/explicit")
-    assert calls == ["/custom/root"]
-
-
-def test_resolve_source_root_for_web_uses_mirror_map_source_root() -> None:
-    """Mirror-map source root should be used when explicit override is absent."""
-
-    class _MirrorMap:
-        def __init__(self, source_root: Path | None) -> None:
-            self.source_root = source_root
-
-    resolved = web_source_services.resolve_source_root_for_web(
-        root_override=None,
-        map_path_override=None,
-        resolve_policy_root_fn=lambda *, explicit_root: (_ for _ in ()).throw(
-            AssertionError("policy-root resolver should not be called")
-        ),
-        resolve_mirror_map_path_fn=lambda *, explicit_map_path: Path("/tmp/mirror_map.yaml"),
-        load_mirror_map_fn=lambda _path: _MirrorMap(Path("/canonical/from-map")),
-    )
-
-    assert resolved == Path("/canonical/from-map")
-
-
-def test_resolve_source_root_for_web_falls_back_when_map_has_no_source() -> None:
-    """Policy-root resolver should be used when map omits source.root."""
-
-    class _MirrorMap:
-        source_root = None
-
-    calls: list[str | None] = []
-
-    def _resolve_policy_root(*, explicit_root: str | None) -> Path:
-        calls.append(explicit_root)
-        return Path("/resolved/fallback")
-
-    resolved = web_source_services.resolve_source_root_for_web(
-        root_override=None,
-        map_path_override=None,
-        resolve_policy_root_fn=_resolve_policy_root,
-        resolve_mirror_map_path_fn=lambda *, explicit_map_path: Path("/tmp/mirror_map.yaml"),
-        load_mirror_map_fn=lambda _path: _MirrorMap(),
-    )
-
-    assert resolved == Path("/resolved/fallback")
-    assert calls == [None]
 
 
 def test_build_tree_payload_filters_supported_files_and_maps_selector() -> None:
@@ -170,47 +98,3 @@ def test_read_write_and_resolve_file_under_root(tmp_path: Path) -> None:
             validate_supported_editor_path=lambda _rel: None,
             resolve_file_under_root=web_source_services.resolve_file_under_root,
         )
-
-
-def test_build_validation_payload_uses_filtered_snapshot() -> None:
-    """Validation payload should count issues from the filtered snapshot report."""
-
-    snapshot = PolicyTreeSnapshot(root=Path("/tmp/policies"), directories=[], artifacts=[])
-    report = ValidationReport(
-        root=Path("/tmp/policies"),
-        issues=[
-            ValidationIssue(
-                level=IssueLevel.WARNING,
-                code="warn_1",
-                message="warn",
-                relative_path="a.txt",
-            ),
-            ValidationIssue(
-                level=IssueLevel.ERROR,
-                code="error_1",
-                message="error",
-                relative_path="b.txt",
-            ),
-        ],
-    )
-    filtered = {"called": False}
-
-    def _filter_snapshot(input_snapshot: PolicyTreeSnapshot) -> PolicyTreeSnapshot:
-        filtered["called"] = True
-        assert input_snapshot is snapshot
-        return input_snapshot
-
-    payload = web_source_services.build_validation_payload(
-        Path("/tmp/policies"),
-        filter_snapshot_to_supported_files=_filter_snapshot,
-        build_policy_tree_snapshot_fn=lambda _source_root: snapshot,
-        validate_snapshot_fn=lambda _filtered_snapshot: report,
-    )
-
-    assert filtered["called"] is True
-    assert payload.source_root == "/tmp/policies"
-    assert payload.source_kind == "local_mirror_snapshot"
-    assert payload.canonical_authority == "mud_server_policy_api"
-    assert "local mirror files only" in payload.detail
-    assert payload.counts == {"error": 1, "warning": 1, "info": 0}
-    assert [issue.code for issue in payload.issues] == ["warn_1", "error_1"]

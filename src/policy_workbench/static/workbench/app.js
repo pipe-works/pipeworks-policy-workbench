@@ -2,7 +2,6 @@ import { THEME_STORAGE_KEY } from "./constants.js";
 import { dom } from "./dom.js";
 import { configureRuntime } from "./runtime.js";
 import { configureInventory } from "./inventory.js";
-import { configureValidation } from "./validation.js";
 import { configureEditorActions } from "./editor_actions.js";
 import { configureRuntimeSession } from "./runtime_session.js";
 import { configureBoot, initializeWorkbench } from "./boot.js";
@@ -67,7 +66,6 @@ configureRuntime({ fetchJson, setStatus });
 configureRuntimeSession({ fetchJson, setStatus });
 configureInventory({ fetchJson, setStatus });
 configureEditorActions({ fetchJson, setStatus });
-configureValidation({ fetchJson, setStatus });
 configureBoot({ setStatus });
 
 async function init() {

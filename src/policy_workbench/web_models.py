@@ -202,26 +202,6 @@ class PolicyPublishRunProxyResponse(BaseModel):
     artifact: dict[str, Any]
 
 
-class ValidationIssueResponse(BaseModel):
-    """Serializable validation issue entry."""
-
-    level: str
-    code: str
-    message: str
-    relative_path: str | None = None
-
-
-class ValidationResponse(BaseModel):
-    """Validation summary payload returned to the web UI."""
-
-    source_root: str
-    source_kind: str
-    canonical_authority: str
-    detail: str
-    counts: dict[str, int]
-    issues: list[ValidationIssueResponse]
-
-
 class SyncActionResponse(BaseModel):
     """Serializable sync action row for dry-run/apply previews."""
 

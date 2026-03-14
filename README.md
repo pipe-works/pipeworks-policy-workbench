@@ -10,7 +10,6 @@ policy objects the primary authoring surface.
 Primary goals:
 - reduce human error when editing policy content
 - keep authoring aligned with mud-server API contracts
-- keep local mirror diagnostics optional and non-authoritative
 
 Current operator workflow is documented in:
 
@@ -36,16 +35,6 @@ pyenv exec pw-policy --help
 pyenv exec pw-policy serve
 ```
 
-Optional local mirror diagnostics (non-authoritative):
-
-```bash
-pyenv exec pw-policy doctor
-pyenv exec pw-policy validate
-pyenv exec pw-policy sync
-pyenv exec pw-policy sync --format json
-pyenv exec pw-policy sync --apply --yes
-```
-
 `pw-policy serve` behavior:
 - binds to the first unused port in `8000-8099`
 - supports `--port` as a preferred in-range port and falls back within range if occupied
@@ -56,15 +45,12 @@ API-only authoring behavior:
 - mud-server login is required; policy APIs are admin/superuser only
 - saves use mud-server policy APIs (`validate -> save -> optional activate`)
 - legacy tree/file endpoints (`GET /api/tree`, `GET|PUT /api/file`) are disabled (`410`)
-- legacy request query overrides (`root`, `map_path`) are rejected (`400`)
-- `/api/validate` is explicitly local mirror diagnostics and returns canonical authority labels
 
 Migration guidance:
 - replace legacy tree/file endpoint usage with canonical API object workflows:
   - `GET /api/tree` -> `GET /api/policies`
   - `GET /api/file` -> `GET /api/policies/{policy_id}`
   - `PUT /api/file` -> `POST /api/policy-save`
-- treat `/api/validate` as local mirror diagnostics only; canonical correctness remains mud-server API validation/save/activation behavior
 
 Developer hardening checks:
 - run focused transport/proxy/source diagnostics coverage for refactored modules:
@@ -73,9 +59,8 @@ Developer hardening checks:
 ## Current Layout
 
 - `src/policy_workbench/` - Python package and CLI entrypoint
-- `src/policy_workbench/commands/` - command handlers (`doctor`, `validate`, `sync`, `serve`)
+- `src/policy_workbench/commands/` - command handlers (`serve` and CLI maintenance tools)
 - `docs/OPERATOR_GUIDE_API_ONLY.md` - current canonical operator guide
-- `config/mirror_map.yaml` - local mirror diagnostics contract (non-authoritative)
 - `tests/` - unit/integration tests
 - `_working/` - live design notes and handover docs
 - `_working/shared` - symlink to shared working directory used across repos

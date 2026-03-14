@@ -16,7 +16,6 @@ import {
   renderUnauthorizedServerState,
   updateActivationScopeLabel,
 } from "./inventory.js";
-import { runValidation } from "./validation.js";
 import { reloadCurrentFile, saveCurrentFile } from "./editor_actions.js";
 import {
   handleRuntimeLoginButtonAction,
@@ -160,7 +159,6 @@ function wireActivationEvents() {
 function wireActionEvents() {
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
-  dom.btnRunValidation.addEventListener("click", runValidation);
 }
 
 async function bootstrapInitialData() {
@@ -180,7 +178,6 @@ async function bootstrapInitialData() {
   } else {
     renderUnauthorizedServerState({ status: runtimeAuthStatus() });
   }
-  await runValidation();
 }
 
 export async function initializeWorkbench() {

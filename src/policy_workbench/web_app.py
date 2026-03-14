@@ -37,8 +37,6 @@ from .web_models import (
     RuntimeModeOptionResponse,
     RuntimeModeRequest,
     RuntimeModeResponse,
-    ValidationIssueResponse,
-    ValidationResponse,
 )
 from .web_services import (
     build_policy_activation_scope_payload,
@@ -50,8 +48,6 @@ from .web_services import (
     build_policy_type_options_payload,
     build_runtime_auth_payload,
     build_runtime_login_payload,
-    build_validation_payload,
-    resolve_source_root_for_web,
 )
 
 _HERE = Path(__file__).resolve().parent
@@ -71,25 +67,6 @@ def create_web_app(
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-    def _reject_legacy_source_overrides(request: Request) -> None:
-        """Reject legacy per-request source root overrides.
-
-        Phase 2+ policy workbench authoring is API-first and server-scoped. Query
-        parameters such as ``root`` and ``map_path`` previously enabled request-level
-        filesystem overrides and are now removed to avoid accidental non-canonical
-        routing.
-        """
-
-        legacy_keys = [key for key in ("root", "map_path") if key in request.query_params]
-        if legacy_keys:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Legacy source override query parameters are disabled "
-                    f"({', '.join(sorted(legacy_keys))})."
-                ),
-            )
 
     def _status_code_for_mud_api_error(detail: str) -> int:
         """Map mud-server auth/permission failures to stable HTTP status codes."""
@@ -134,18 +111,6 @@ def create_web_app(
             # Returning 503 keeps callers from mistaking environment/runtime
             # misconfiguration for policy validation/data problems.
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    def _resolve_source_root_for_request(request: Request) -> Path:
-        """Resolve source root for source-backed routes with legacy override rejection."""
-
-        _reject_legacy_source_overrides(request)
-        try:
-            return resolve_source_root_for_web(
-                root_override=source_root_override,
-                map_path_override=map_path_override,
-            )
-        except (FileNotFoundError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def _build_runtime_mode_response() -> RuntimeModeResponse:
         """Return runtime mode payload serialized to API response models."""
@@ -430,37 +395,5 @@ def create_web_app(
             )
 
         return _run_server_api_route(_build_save_response)
-
-    @app.get("/api/validate", response_model=ValidationResponse)
-    async def api_validate(request: Request) -> ValidationResponse:
-        """Return mirror/local validation diagnostics for current source tree."""
-        try:
-            source_root = _resolve_source_root_for_request(request)
-        except HTTPException as exc:
-            detail_text = str(exc.detail)
-            if (
-                exc.status_code == 400
-                and "Legacy source override query parameters are disabled" not in detail_text
-            ):
-                return ValidationResponse(
-                    source_root="",
-                    source_kind="local_mirror_snapshot",
-                    canonical_authority="mud_server_policy_api",
-                    detail=(
-                        "Validation diagnostics are unavailable because a canonical local "
-                        "source root could not be resolved."
-                    ),
-                    counts={"error": 0, "warning": 1, "info": 0},
-                    issues=[
-                        ValidationIssueResponse(
-                            level="warning",
-                            code="SOURCE_ROOT_UNAVAILABLE",
-                            message=detail_text,
-                            relative_path=None,
-                        )
-                    ],
-                )
-            raise
-        return build_validation_payload(source_root)
 
     return app
