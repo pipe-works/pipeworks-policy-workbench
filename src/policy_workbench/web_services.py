@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 from pipeworks_ipc.hashing import compute_payload_hash
 
-from . import mud_api_client
+from . import mud_api_client, web_runtime_services
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
@@ -176,55 +176,15 @@ def build_runtime_auth_payload(
     expired, or lacks required role permissions.
     """
 
-    if source_kind != "server_api":
-        return RuntimeAuthResponse(
-            mode_key=mode_key,
-            source_kind=source_kind,
-            active_server_url=active_server_url,
-            session_present=False,
-            access_granted=False,
-            status="error",
-            detail="Runtime mode must be server_api.",
-        )
-
-    try:
-        runtime = _resolve_mud_api_runtime_config(
-            session_id_override=session_id_override,
-            base_url_override=base_url_override,
-        )
-    except ValueError:
-        return RuntimeAuthResponse(
-            mode_key=mode_key,
-            source_kind=source_kind,
-            active_server_url=active_server_url,
-            session_present=False,
-            access_granted=False,
-            status="missing_session",
-            detail="No active runtime session. Login with an admin/superuser account.",
-        )
-
-    try:
-        _fetch_policy_capabilities_payload(runtime=runtime)
-    except ValueError as exc:
-        status, detail = _classify_runtime_auth_probe_error(str(exc))
-        return RuntimeAuthResponse(
-            mode_key=mode_key,
-            source_kind=source_kind,
-            active_server_url=runtime.base_url,
-            session_present=True,
-            access_granted=False,
-            status=status,
-            detail=detail,
-        )
-
-    return RuntimeAuthResponse(
+    return web_runtime_services.build_runtime_auth_payload(
         mode_key=mode_key,
         source_kind=source_kind,
-        active_server_url=runtime.base_url,
-        session_present=True,
-        access_granted=True,
-        status="authorized",
-        detail="Session is authorized for admin/superuser policy APIs.",
+        active_server_url=active_server_url,
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_policy_capabilities=_fetch_policy_capabilities_payload,
+        classify_runtime_probe_error=_classify_runtime_auth_probe_error,
     )
 
 
@@ -238,56 +198,17 @@ def build_runtime_login_payload(
     base_url_override: str | None = None,
 ) -> RuntimeLoginResponse:
     """Authenticate against the active mud-server URL and return session details."""
-
-    if source_kind != "server_api":
-        raise ValueError("Runtime mode must be server_api.")
-
-    normalized_username = (username or "").strip()
-    if not normalized_username:
-        raise ValueError("Username is required.")
-    normalized_password = (password or "").strip()
-    if not normalized_password:
-        raise ValueError("Password is required.")
-
-    runtime_base_url = (
-        base_url_override
-        if base_url_override is not None
-        else active_server_url if active_server_url is not None else _DEFAULT_MUD_API_BASE_URL
-    )
-    base_url = _normalize_base_url(runtime_base_url)
-    if not base_url:
-        raise ValueError("Mud API base URL must not be empty.")
-
-    payload = _fetch_mud_api_json_anonymous(
-        base_url=base_url,
-        method="POST",
-        path="/login",
-        body={
-            "username": normalized_username,
-            "password": normalized_password,
-        },
-    )
-
-    session_id = payload.get("session_id")
-    role = payload.get("role")
-    if not isinstance(session_id, str) or not session_id.strip():
-        raise ValueError("Mud login response did not include session_id.")
-    if not isinstance(role, str) or not role.strip():
-        raise ValueError("Mud login response did not include role.")
-    normalized_role = role.strip()
-    if normalized_role not in _POLICY_ALLOWED_ROLES:
-        return RuntimeLoginResponse(
-            success=False,
-            session_id=session_id.strip(),
-            role=normalized_role,
-            detail="Authenticated, but role is not admin/superuser for policy APIs.",
-        )
-
-    return RuntimeLoginResponse(
-        success=True,
-        session_id=session_id.strip(),
-        role=normalized_role,
-        detail="Authenticated as admin/superuser.",
+    return web_runtime_services.build_runtime_login_payload(
+        mode_key=mode_key,
+        source_kind=source_kind,
+        active_server_url=active_server_url,
+        username=username,
+        password=password,
+        base_url_override=base_url_override,
+        default_base_url=_DEFAULT_MUD_API_BASE_URL,
+        allowed_roles=_POLICY_ALLOWED_ROLES,
+        normalize_base_url=_normalize_base_url,
+        fetch_mud_api_json_anonymous=_fetch_mud_api_json_anonymous,
     )
 
 
@@ -299,23 +220,13 @@ def build_policy_type_options_payload(
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
     """Return canonical policy-type options sourced from mud-server capabilities."""
-    if source_kind != "server_api":
-        raise ValueError("Runtime mode must be server_api.")
-    runtime = _resolve_mud_api_runtime_config(
+    return web_runtime_services.build_policy_type_options_payload(
+        source_kind=source_kind,
+        active_server_url=active_server_url,
         session_id_override=session_id_override,
-        base_url_override=(
-            base_url_override if base_url_override is not None else active_server_url
-        ),
-    )
-    payload = _fetch_policy_capabilities_payload(runtime=runtime)
-    api_policy_types = _extract_string_list_from_capabilities_payload(
-        payload=payload,
-        field_name="allowed_policy_types",
-    )
-    return PolicyTypeOptionsResponse(
-        items=api_policy_types,
-        source="mud_server_api",
-        detail="Policy types resolved from mud-server policy capabilities.",
+        base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_policy_capabilities=_fetch_policy_capabilities_payload,
     )
 
 
@@ -328,29 +239,14 @@ def build_policy_namespace_options_payload(
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
     """Return canonical policy namespace options sourced from mud-server inventory."""
-    if source_kind != "server_api":
-        raise ValueError("Runtime mode must be server_api.")
-    normalized_policy_type = str(policy_type or "").strip() or None
-    runtime = _resolve_mud_api_runtime_config(
+    return web_runtime_services.build_policy_namespace_options_payload(
+        source_kind=source_kind,
+        active_server_url=active_server_url,
         session_id_override=session_id_override,
-        base_url_override=(
-            base_url_override if base_url_override is not None else active_server_url
-        ),
-    )
-    query_params: dict[str, str] = {}
-    if normalized_policy_type:
-        query_params["policy_type"] = normalized_policy_type
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path="/api/policies",
-        query_params=query_params,
-    )
-    api_namespaces = _extract_namespaces_from_inventory_payload(payload)
-    return PolicyTypeOptionsResponse(
-        items=api_namespaces,
-        source="mud_server_api",
-        detail="Namespaces resolved from mud-server API inventory.",
+        policy_type=policy_type,
+        base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
 
 
@@ -362,23 +258,13 @@ def build_policy_status_options_payload(
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
     """Return canonical policy status options sourced from mud-server capabilities."""
-    if source_kind != "server_api":
-        raise ValueError("Runtime mode must be server_api.")
-    runtime = _resolve_mud_api_runtime_config(
+    return web_runtime_services.build_policy_status_options_payload(
+        source_kind=source_kind,
+        active_server_url=active_server_url,
         session_id_override=session_id_override,
-        base_url_override=(
-            base_url_override if base_url_override is not None else active_server_url
-        ),
-    )
-    payload = _fetch_policy_capabilities_payload(runtime=runtime)
-    statuses = _extract_string_list_from_capabilities_payload(
-        payload=payload,
-        field_name="allowed_statuses",
-    )
-    return PolicyTypeOptionsResponse(
-        items=statuses,
-        source="mud_server_api",
-        detail="Statuses resolved from mud-server policy capabilities.",
+        base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_policy_capabilities=_fetch_policy_capabilities_payload,
     )
 
 
@@ -771,20 +657,10 @@ def build_hash_status_payload(
 
 def _classify_runtime_auth_probe_error(error_detail: str) -> tuple[str, str]:
     """Classify mud-server capability probe failure into stable UI-facing status."""
-
-    if _POLICY_API_ROLE_REQUIRED_DETAIL in error_detail:
-        return (
-            "forbidden",
-            "Session is valid but role is not admin/superuser.",
-        )
-
-    if "Invalid or expired session" in error_detail or "Invalid session user" in error_detail:
-        return (
-            "unauthenticated",
-            "Session is invalid or expired.",
-        )
-
-    return ("error", error_detail)
+    return web_runtime_services.classify_runtime_auth_probe_error(
+        error_detail=error_detail,
+        role_required_detail=_POLICY_API_ROLE_REQUIRED_DETAIL,
+    )
 
 
 def _fetch_policy_capabilities_payload(*, runtime: _MudApiRuntimeConfig) -> dict[str, object]:
@@ -793,21 +669,10 @@ def _fetch_policy_capabilities_payload(*, runtime: _MudApiRuntimeConfig) -> dict
     The workbench uses this endpoint as the canonical contract for
     auth/capability checks and policy type/status option discovery.
     """
-    payload = _fetch_mud_api_json(
+    return web_runtime_services.fetch_policy_capabilities_payload(
         runtime=runtime,
-        method="GET",
-        path="/api/policy-capabilities",
-        query_params={},
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
-    _ = _extract_string_list_from_capabilities_payload(
-        payload=payload,
-        field_name="allowed_policy_types",
-    )
-    _ = _extract_string_list_from_capabilities_payload(
-        payload=payload,
-        field_name="allowed_statuses",
-    )
-    return payload
 
 
 def _resolve_mud_api_runtime_config(
@@ -838,45 +703,20 @@ def _extract_string_list_from_capabilities_payload(
     field_name: str,
 ) -> list[str]:
     """Extract and normalize one string-list field from capabilities payload."""
-    raw_values = payload.get(field_name)
-    if not isinstance(raw_values, list):
-        raise ValueError(f"Mud API /api/policy-capabilities response must include {field_name!r}.")
-
-    values: list[str] = []
-    for value in raw_values:
-        normalized = str(value or "").strip()
-        if normalized:
-            values.append(normalized)
-    return _dedupe_preserve_order(values)
+    return web_runtime_services.extract_string_list_from_capabilities_payload(
+        payload=payload,
+        field_name=field_name,
+    )
 
 
 def _extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> list[str]:
     """Extract stable namespace list from ``GET /api/policies`` payload."""
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raise ValueError("Mud API /api/policies response must include an 'items' list.")
-
-    namespaces: list[str] = []
-    for item in raw_items:
-        if not isinstance(item, dict):
-            continue
-        namespace = str(item.get("namespace", "")).strip()
-        if namespace:
-            namespaces.append(namespace)
-    return _dedupe_preserve_order(namespaces)
+    return web_runtime_services.extract_namespaces_from_inventory_payload(payload)
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:
     """Normalize duplicate-prone lists while preserving first-seen ordering."""
-    unique: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        normalized = str(value or "").strip()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        unique.append(normalized)
-    return unique
+    return web_runtime_services.dedupe_preserve_order(values)
 
 
 def _load_local_policy_types_from_disk() -> tuple[list[str], str, str | None]:
