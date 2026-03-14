@@ -12,6 +12,14 @@
 * `/api/validate` now returns explicit authority metadata (`source_kind=local_mirror_snapshot`, `canonical_authority=mud_server_policy_api`) so mirror diagnostics are clearly non-authoritative
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.16](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.15...pipeworks-policy-workbench-v0.1.16) (2026-03-14)
+
+
+### Fixes
+
+* **web:** avoid startup 400s before runtime login ([d4adbfa](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d4adbfa1eace8895add4296e2302e570a4cc8f41))
+* **web:** avoid startup 400s before runtime login ([d53ec3c](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d53ec3c349fe63bbc12055659733db19cdffb38d))
+
 ## [0.1.15](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.14...pipeworks-policy-workbench-v0.1.15) (2026-03-14)
 
 
