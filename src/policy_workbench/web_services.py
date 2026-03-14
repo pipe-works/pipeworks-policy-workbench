@@ -20,10 +20,8 @@ from . import (
 from .models import PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
 from .policy_authoring import selector_from_relative_path
-from .sync_models import SyncAction, SyncPlan
 from .web_models import (
     HashCanonicalResponse,
-    HashStatusResponse,
     PolicyActivationScopeResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
@@ -32,9 +30,6 @@ from .web_models import (
     PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginResponse,
-    SyncActionResponse,
-    SyncCompareResponse,
-    SyncPlanResponse,
     ValidationResponse,
 )
 
@@ -306,78 +301,11 @@ def read_policy_file(source_root: Path, relative_path: str) -> str:
     )
 
 
-def write_policy_file(source_root: Path, relative_path: str, content: str) -> int:
-    """Write one policy file under source root and return bytes written."""
-    return web_source_services.write_policy_file(
-        source_root,
-        relative_path,
-        content,
-        validate_supported_editor_path=_validate_supported_editor_path,
-        resolve_file_under_root=_resolve_file_under_root,
-    )
-
-
 def build_validation_payload(source_root: Path) -> ValidationResponse:
     """Build serialized validation payload for right-panel reporting."""
     return web_source_services.build_validation_payload(
         source_root,
         filter_snapshot_to_supported_files=_filter_snapshot_to_supported_files,
-    )
-
-
-def build_sync_payload(
-    *,
-    source_root: Path,
-    map_path_override: str | None,
-    include_unchanged: bool,
-) -> SyncPlanResponse:
-    """Build serialized sync-plan payload for impact visualization."""
-    return web_diagnostics_services.build_sync_payload(
-        source_root=source_root,
-        map_path_override=map_path_override,
-        include_unchanged=include_unchanged,
-    )
-
-
-def build_sync_plan_for_apply(
-    *,
-    source_root: Path,
-    map_path_override: str | None,
-) -> SyncPlan:
-    """Build raw sync plan object for apply endpoint execution."""
-    return web_diagnostics_services.build_sync_plan_for_apply(
-        source_root=source_root,
-        map_path_override=map_path_override,
-    )
-
-
-def build_sync_compare_payload(
-    *,
-    source_root: Path,
-    map_path_override: str | None,
-    relative_path: str,
-    focus_target: str | None = None,
-) -> SyncCompareResponse:
-    """Build side-by-side source/target comparison payload for one path."""
-    return web_diagnostics_services.build_sync_compare_payload(
-        source_root=source_root,
-        map_path_override=map_path_override,
-        relative_path=relative_path,
-        focus_target=focus_target,
-    )
-
-
-def build_hash_status_payload(
-    *,
-    source_root: Path,
-    map_path_override: str | None,
-    canonical_snapshot_url_override: str | None = None,
-) -> HashStatusResponse:
-    """Build hash alignment status against canonical mud-server hash snapshot."""
-    return web_diagnostics_services.build_hash_status_payload(
-        source_root=source_root,
-        map_path_override=map_path_override,
-        canonical_snapshot_url_override=canonical_snapshot_url_override,
     )
 
 
@@ -554,14 +482,6 @@ def _fetch_canonical_hash_snapshot(url: str) -> HashCanonicalResponse:
     )
 
 
-def _collect_local_policy_entries(policy_root: Path) -> list[_PolicyHashEntry]:
-    """Collect deterministic policy file hash entries from ``policy_root``."""
-    return [
-        _PolicyHashEntry(relative_path=entry.relative_path, content_hash=entry.content_hash)
-        for entry in web_diagnostics_services.collect_local_policy_entries(policy_root)
-    ]
-
-
 def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
     """Compute deterministic policy file hash using IPC as the primary contract.
 
@@ -601,14 +521,6 @@ def _compute_tree_hash(entries: list[_PolicyHashEntry]) -> str:
     )
 
 
-def _compute_missing_content_hash(relative_path: str) -> str:
-    """Build deterministic hash marker for missing canonical-managed files."""
-    return web_diagnostics_services.compute_missing_content_hash(
-        relative_path,
-        hash_version=_HASH_VERSION,
-    )
-
-
 def _normalize_relative_path(relative_path: str) -> str:
     """Normalize a policy-relative path and reject traversal-like values."""
     return web_diagnostics_services.normalize_relative_path(relative_path)
@@ -620,16 +532,6 @@ def _resolve_file_under_root(source_root: Path, relative_path: str) -> Path:
     Raises ``ValueError`` when the resolved path escapes source_root.
     """
     return web_source_services.resolve_file_under_root(source_root, relative_path)
-
-
-def _serialize_action(action: SyncAction) -> SyncActionResponse:
-    """Convert planner action into JSON-serializable web response model."""
-    return web_diagnostics_services.serialize_action(action)
-
-
-def _counts_for_plan(plan: SyncPlan) -> dict[str, int]:
-    """Count action types from a sync plan."""
-    return web_diagnostics_services.counts_for_plan(plan)
 
 
 def _is_supported_editor_file(relative_path: str) -> bool:
@@ -653,22 +555,6 @@ def _filter_snapshot_to_supported_files(snapshot: PolicyTreeSnapshot) -> PolicyT
     return web_diagnostics_services.filter_snapshot_to_supported_files(
         snapshot,
         editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
-    )
-
-
-def _filter_sync_plan_to_supported_files(plan: SyncPlan) -> SyncPlan:
-    """Return sync plan narrowed to files supported by the web workbench editor."""
-    return web_diagnostics_services.filter_sync_plan_to_supported_files(
-        plan,
-        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
-    )
-
-
-def _action_by_target_for_relative_path(plan: SyncPlan, *, relative_path: str) -> dict[str, str]:
-    """Return sync action type value keyed by target name for one relative path."""
-    return web_diagnostics_services.action_by_target_for_relative_path(
-        plan=plan,
-        relative_path=relative_path,
     )
 
 
