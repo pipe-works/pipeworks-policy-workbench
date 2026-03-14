@@ -209,5 +209,8 @@ def test_build_validation_payload_uses_filtered_snapshot() -> None:
 
     assert filtered["called"] is True
     assert payload.source_root == "/tmp/policies"
+    assert payload.source_kind == "local_mirror_snapshot"
+    assert payload.canonical_authority == "mud_server_policy_api"
+    assert "local mirror files only" in payload.detail
     assert payload.counts == {"error": 1, "warning": 1, "info": 0}
     assert [issue.code for issue in payload.issues] == ["warn_1", "error_1"]

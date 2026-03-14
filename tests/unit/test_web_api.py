@@ -786,6 +786,9 @@ def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
     response = client.get("/api/validate")
     assert response.status_code == 200
     payload = response.json()
+    assert payload["source_kind"] == "local_mirror_snapshot"
+    assert payload["canonical_authority"] == "mud_server_policy_api"
+    assert "local mirror files only" in payload["detail"]
     assert payload["counts"] == {"error": 0, "warning": 0, "info": 0}
     assert payload["issues"] == []
 

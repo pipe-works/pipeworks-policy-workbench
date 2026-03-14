@@ -15,8 +15,9 @@ function requireValidationDeps() {
 }
 
 function renderValidation(report) {
+  const sourceKind = report.source_kind || "local_mirror_snapshot";
   dom.validationCounts.textContent =
-    `errors=${report.counts.error} warnings=${report.counts.warning} info=${report.counts.info}`;
+    `errors=${report.counts.error} warnings=${report.counts.warning} info=${report.counts.info} source=${sourceKind}`;
 
   dom.validationList.innerHTML = "";
   if (!report.issues.length) {
@@ -38,11 +39,12 @@ function renderValidation(report) {
 
 export async function runValidation() {
   requireValidationDeps();
-  _setStatus("Running mirror validation diagnostics...");
+  _setStatus("Running local mirror validation diagnostics (non-authoritative)...");
   try {
     const report = await _fetchJson("/api/validate");
     renderValidation(report);
-    _setStatus("Mirror validation diagnostics complete.");
+    const canonicalAuthority = report.canonical_authority || "mud_server_policy_api";
+    _setStatus(`Mirror validation diagnostics complete. Canonical authority: ${canonicalAuthority}.`);
   } catch (error) {
     _setStatus(`Mirror validation failed: ${error.message}`);
   }

@@ -57,6 +57,7 @@ API-only authoring behavior:
 - saves use mud-server policy APIs (`validate -> save -> optional activate`)
 - legacy tree/file endpoints (`GET /api/tree`, `GET|PUT /api/file`) are disabled (`410`)
 - legacy request query overrides (`root`, `map_path`) are rejected (`400`)
+- `/api/validate` is explicitly local mirror diagnostics and returns canonical authority labels
 
 ## Current Layout
 

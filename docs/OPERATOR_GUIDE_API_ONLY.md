@@ -84,6 +84,8 @@ Interpretation:
 1. Diagnostics can identify local mirror drift or file-shape issues.
 2. Diagnostics do not change canonical mud-server policy state.
 3. Canonical correctness is determined by mud-server API validation/save/activation behavior.
+4. `/api/validate` reports `source_kind=local_mirror_snapshot` and
+   `canonical_authority=mud_server_policy_api` to make authority boundaries explicit.
 
 ## Troubleshooting
 
