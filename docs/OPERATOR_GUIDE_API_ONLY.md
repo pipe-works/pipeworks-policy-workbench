@@ -69,6 +69,12 @@ Contract notes:
 2. Legacy tree/file endpoints (`GET /api/tree`, `GET|PUT /api/file`) are intentionally disabled (`410`).
 3. Legacy per-request source overrides (`root`, `map_path`) are disabled (`400`) for remaining source-backed diagnostics routes.
 
+Migration mapping:
+
+1. `GET /api/tree` is replaced by `GET /api/policies` for canonical inventory.
+2. `GET /api/file` is replaced by `GET /api/policies/{policy_id}` for canonical reads.
+3. `PUT /api/file` is replaced by `POST /api/policy-save` for canonical writes.
+
 ## Optional Mirror Diagnostics
 
 Use only for local operational visibility, not canonical writes.
@@ -99,7 +105,8 @@ If save fails:
 
 1. Review returned validation detail from save response.
 2. Confirm selected policy type/namespace/key/variant is correct.
-3. Re-check server URL/session and try again.
+3. Confirm activation scope values are intentional and non-empty after trimming (`world_id`, optional `client_profile`).
+4. Re-check server URL/session and try again.
 
 ## Versioning
 

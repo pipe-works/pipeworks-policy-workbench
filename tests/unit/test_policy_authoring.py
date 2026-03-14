@@ -193,6 +193,98 @@ def test_save_policy_variant_from_raw_content_supports_prompt_text(monkeypatch) 
     assert captured_payloads[1]["content"] == {"text": "Stay in-character and terse."}
 
 
+def test_save_policy_variant_from_raw_content_uses_resolved_next_version_for_requests(
+    monkeypatch,
+) -> None:
+    """Save helper should use resolved next version for validate/upsert request payloads."""
+
+    selector = PolicySelector(
+        policy_type="prompt",
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 12}
+        if "/variants/" in kwargs["url"]:
+            # Canonical server response remains authoritative for returned version.
+            return {"policy_version": 43, "content_hash": "hash-prompt"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 42)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content="Stay in-character and terse.\n",
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+
+    assert captured_payloads[0]["policy_version"] == 42
+    assert captured_payloads[1]["policy_version"] == 42
+    assert result.policy_version == 43
+
+
+def test_save_policy_variant_from_raw_content_trims_activation_scope_fields(monkeypatch) -> None:
+    """Activation payload should normalize scope/operator fields before API call."""
+
+    selector = PolicySelector(
+        policy_type="species_block",
+        namespace="image.blocks.species",
+        policy_key="goblin",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_activation_payload: dict[str, object] = {}
+
+    def _fake_request_json(**kwargs):
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 10}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 2, "content_hash": "hash-2"}
+        if "/policy-activations" in kwargs["url"]:
+            captured_activation_payload.update(kwargs.get("json_payload") or {})
+            return {"audit_event_id": 77}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 2)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content="text: |\n  Canonical goblin text.\n",
+        schema_version="1.0",
+        status="candidate",
+        activate=True,
+        world_id=" pipeworks_web ",
+        client_profile=" mobile ",
+        actor=" tester ",
+        runtime_config=config,
+    )
+
+    assert result.activation_audit_event_id == 77
+    assert captured_activation_payload == {
+        "world_id": "pipeworks_web",
+        "client_profile": "mobile",
+        "policy_id": "species_block:image.blocks.species:goblin",
+        "variant": "v1",
+        "activated_by": "tester",
+    }
+
+
 def test_save_policy_variant_from_raw_content_rejects_invalid_tone_profile_json() -> None:
     """Generic save helper should reject non-JSON tone profile payload text."""
     with pytest.raises(ValueError, match="must be valid JSON object text"):

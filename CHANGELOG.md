@@ -5,10 +5,12 @@
 ### Breaking Changes
 
 * legacy tree/file endpoints are intentionally disabled: `GET /api/tree`, `GET|PUT /api/file` now return `410` and API-first replacements are required (`/api/policies`, `/api/policies/{policy_id}`, `/api/policy-save`)
+* migration guidance for endpoint replacements is now documented in `README.md` and `docs/OPERATOR_GUIDE_API_ONLY.md`
 
 ### Internal Changes
 
 * `/api/validate` now returns explicit authority metadata (`source_kind=local_mirror_snapshot`, `canonical_authority=mud_server_policy_api`) so mirror diagnostics are clearly non-authoritative
+* expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
 ## [0.1.14](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.13...pipeworks-policy-workbench-v0.1.14) (2026-03-14)
 
