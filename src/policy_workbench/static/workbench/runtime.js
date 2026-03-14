@@ -233,6 +233,9 @@ export function setServerFeatureAvailability() {
   if (dom.inventoryPolicyType) {
     dom.inventoryPolicyType.disabled = false;
   }
+  if (dom.inventoryWorld) {
+    dom.inventoryWorld.disabled = !serverAuthorized || !(state.availableWorlds || []).length;
+  }
   if (dom.inventoryNamespace) {
     dom.inventoryNamespace.disabled = false;
   }
@@ -247,9 +250,6 @@ export function setServerFeatureAvailability() {
     if (!serverAuthorized) {
       dom.activationEnable.checked = false;
     }
-  }
-  if (dom.activationWorldId) {
-    dom.activationWorldId.disabled = !serverAuthorized;
   }
   if (dom.activationClientProfile) {
     dom.activationClientProfile.disabled = !serverAuthorized;

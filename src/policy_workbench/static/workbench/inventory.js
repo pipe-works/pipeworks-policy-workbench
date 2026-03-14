@@ -65,6 +65,115 @@ function renderPolicyStatusOptions(payload) {
   });
 }
 
+function normalizeWorldRows(worldRows) {
+  const normalizedRows = [];
+  const seenIds = new Set();
+  for (const row of worldRows || []) {
+    if (!row || typeof row !== "object") {
+      continue;
+    }
+    const worldId = String(row.id || "").trim();
+    if (!worldId || seenIds.has(worldId)) {
+      continue;
+    }
+    seenIds.add(worldId);
+    normalizedRows.push({
+      ...row,
+      id: worldId,
+      name: String(row.name || "").trim(),
+      can_access: row.can_access !== false,
+      is_active: row.is_active !== false,
+    });
+  }
+  return normalizedRows;
+}
+
+function choosePreferredWorldId(worldRows, preferredWorldId, previousWorldId) {
+  const availableIds = new Set((worldRows || []).map((row) => row.id));
+  const preferred = String(preferredWorldId || "").trim();
+  if (preferred && availableIds.has(preferred)) {
+    return preferred;
+  }
+  const previous = String(previousWorldId || "").trim();
+  if (previous && availableIds.has(previous)) {
+    return previous;
+  }
+
+  const defaultWorld = (worldRows || []).find((row) => row.is_active && row.can_access);
+  if (defaultWorld) {
+    return defaultWorld.id;
+  }
+  return String(worldRows?.[0]?.id || "").trim();
+}
+
+function buildWorldLabel(worldRow) {
+  const worldId = String(worldRow.id || "").trim();
+  const worldName = String(worldRow.name || "").trim();
+  let label = worldId;
+  if (worldName && worldName !== worldId) {
+    label = `${worldName} (${worldId})`;
+  }
+
+  const suffixes = [];
+  if (!worldRow.is_active) {
+    suffixes.push("inactive");
+  }
+  if (!worldRow.can_access) {
+    suffixes.push("locked");
+  }
+  if (suffixes.length) {
+    return `${label} [${suffixes.join(", ")}]`;
+  }
+  return label;
+}
+
+export function setAvailableWorldOptions(worldRows, { preferredWorldId = "" } = {}) {
+  const normalizedRows = normalizeWorldRows(worldRows);
+  state.availableWorlds = normalizedRows;
+  if (!dom.inventoryWorld) {
+    state.selectedWorldId = choosePreferredWorldId(
+      normalizedRows,
+      preferredWorldId,
+      state.selectedWorldId
+    );
+    return;
+  }
+
+  const previouslySelected = String(dom.inventoryWorld.value || "").trim();
+  const nextWorldId = choosePreferredWorldId(normalizedRows, preferredWorldId, previouslySelected);
+  dom.inventoryWorld.innerHTML = "";
+
+  if (!normalizedRows.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No worlds available";
+    dom.inventoryWorld.appendChild(option);
+    dom.inventoryWorld.value = "";
+    state.selectedWorldId = "";
+    updateActivationScopeLabel();
+    setServerFeatureAvailability();
+    return;
+  }
+
+  for (const worldRow of normalizedRows) {
+    const option = document.createElement("option");
+    option.value = worldRow.id;
+    option.textContent = buildWorldLabel(worldRow);
+    dom.inventoryWorld.appendChild(option);
+  }
+  if (nextWorldId) {
+    dom.inventoryWorld.value = nextWorldId;
+  }
+
+  state.selectedWorldId = String(dom.inventoryWorld.value || "").trim();
+  updateActivationScopeLabel();
+  setServerFeatureAvailability();
+}
+
+export function clearAvailableWorldOptions() {
+  setAvailableWorldOptions([], { preferredWorldId: "" });
+}
+
 function renderPolicyStatusOptionCounts(statusCounts = new Map()) {
   if (!dom.inventoryStatus) {
     return;
@@ -465,8 +574,9 @@ export async function loadPolicyObject(policyId, variant = "") {
 }
 
 export function readActivationScopeInputs() {
-  const worldId = (dom.activationWorldId?.value || "").trim();
+  const worldId = (dom.inventoryWorld?.value || state.selectedWorldId || "").trim();
   const clientProfile = (dom.activationClientProfile?.value || "").trim();
+  state.selectedWorldId = worldId;
   return {
     worldId,
     clientProfile,
@@ -474,14 +584,25 @@ export function readActivationScopeInputs() {
   };
 }
 
+function updateActivationWorldDisplay() {
+  if (!dom.activationWorldDisplay) {
+    return;
+  }
+  const worldId = String(dom.inventoryWorld?.value || state.selectedWorldId || "").trim();
+  dom.activationWorldDisplay.textContent = worldId
+    ? `World: ${worldId}`
+    : "World: none selected";
+}
+
 export function updateActivationScopeLabel() {
+  updateActivationWorldDisplay();
   if (!dom.activationScopeLabel) {
     updateActivationSaveSummary();
     return;
   }
   const { worldId, clientProfile } = readActivationScopeInputs();
   if (!worldId) {
-    dom.activationScopeLabel.textContent = "scope: <missing world_id>";
+    dom.activationScopeLabel.textContent = "scope: none selected";
     updateActivationSaveSummary();
     return;
   }
@@ -503,12 +624,12 @@ export function updateActivationSaveSummary() {
   if (!activateAfterSave) {
     summaryLabel.textContent = worldId
       ? `Activation after save: Off · Scope: ${scope}`
-      : "Activation after save: Off · Scope: <missing world_id>";
+      : "Activation after save: Off · Scope: none selected";
     return;
   }
 
   if (!worldId) {
-    summaryLabel.textContent = "Activation after save: On · Scope: <missing world_id>";
+    summaryLabel.textContent = "Activation after save: On · Scope: none selected";
     summaryLabel.classList.add("activation-save-summary__meta--warning");
     return;
   }
@@ -581,9 +702,9 @@ export async function refreshActivationScope({ silent = false } = {}) {
   const { worldId, scope } = readActivationScopeInputs();
   updateActivationScopeLabel();
   if (!worldId) {
-    renderActivationMessage("Enter world_id before loading activation mappings.", "warning");
+    renderActivationMessage("Select a world before loading activation mappings.", "warning");
     if (!silent) {
-      _setStatus("Activation mapping load skipped: world_id is required.");
+      _setStatus("Activation mapping load skipped: world selection is required.");
     }
     return null;
   }

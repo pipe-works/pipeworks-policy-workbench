@@ -11,9 +11,11 @@ import {
   setServerFeatureAvailability,
 } from "./runtime.js";
 import {
+  clearAvailableWorldOptions,
   refreshActivationScope,
   refreshPolicyFilterOptions,
   refreshPolicyInventory,
+  setAvailableWorldOptions,
   renderActivationMessage,
   renderPolicyInventory,
   renderUnauthorizedServerState,
@@ -66,6 +68,7 @@ export async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {})
   });
   applyRuntimeModeState(payload);
   setRuntimeSessionId("");
+  clearAvailableWorldOptions();
   const runtimeAuth = await refreshRuntimeAuthState({ silent: true });
   await refreshPolicyFilterOptions({ silent: true });
 
@@ -101,6 +104,7 @@ export async function loginRuntimeSession() {
     }
 
     setRuntimeSessionId(payload.session_id);
+    setAvailableWorldOptions(payload.available_worlds || []);
     if (dom.runtimeLoginPassword) {
       dom.runtimeLoginPassword.value = "";
     }
@@ -130,6 +134,7 @@ async function logoutRuntimeSession() {
   }
 
   setRuntimeSessionId("");
+  clearAvailableWorldOptions();
   if (dom.runtimeLoginPassword) {
     dom.runtimeLoginPassword.value = "";
   }

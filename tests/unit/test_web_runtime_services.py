@@ -55,11 +55,13 @@ def test_build_runtime_login_payload_normalizes_and_enforces_roles() -> None:
         fetch_mud_api_json_anonymous=lambda **_kwargs: {
             "session_id": "session-1",
             "role": "player",
+            "available_worlds": [{"id": "pipeworks_web", "name": "Pipeworks Web"}],
         },
     )
     assert forbidden_payload.success is False
     assert forbidden_payload.session_id == "session-1"
     assert forbidden_payload.role == "player"
+    assert forbidden_payload.available_worlds == [{"id": "pipeworks_web", "name": "Pipeworks Web"}]
 
 
 def test_build_policy_namespace_options_payload_passes_policy_type_filter() -> None:
