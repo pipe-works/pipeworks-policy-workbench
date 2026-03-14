@@ -66,8 +66,8 @@ Notes:
 Contract notes:
 
 1. Save flow is validate first, then upsert, then optional activate.
-2. Direct file write endpoint (`PUT /api/file`) is intentionally disabled (`410`).
-3. Legacy per-request source overrides (`root`, `map_path`) are disabled (`400`).
+2. Legacy tree/file endpoints (`GET /api/tree`, `GET|PUT /api/file`) are intentionally disabled (`410`).
+3. Legacy per-request source overrides (`root`, `map_path`) are disabled (`400`) for remaining source-backed diagnostics routes.
 
 ## Optional Mirror Diagnostics
 

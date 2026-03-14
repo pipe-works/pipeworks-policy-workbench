@@ -365,116 +365,25 @@ def test_policy_statuses_endpoint_maps_missing_session_to_400(tmp_path: Path, mo
     assert "session id is required" in response.json()["detail"]
 
 
-def test_tree_and_file_endpoints_expose_phase2_selector_metadata(tmp_path: Path) -> None:
-    """Tree/file APIs should expose selector metadata and keep path safety."""
+def test_legacy_tree_and_file_endpoints_are_disabled(tmp_path: Path) -> None:
+    """Legacy tree/file APIs should fail closed with explicit 410 responses."""
 
-    client, source_root, _ = _build_client(tmp_path)
-    _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
-    _write_text(source_root / "image" / "notes.md", "ignored markdown file")
-    _write_text(
-        source_root / "image" / "descriptor_layers" / "id_card_v1.yaml",
-        "references:\n  - policy_id: species_block:image.blocks.species:goblin\n    variant: v1\n",
-    )
-    _write_text(
-        source_root / "image" / "registries" / "species_registry.yaml",
-        "entries:\n  - block_path: policies/image/blocks/species/goblin_v1.yaml\n",
-    )
-    _write_text(
-        source_root / "image" / "tone_profiles" / "ledger_engraving_v1.json",
-        '{"prompt_block":"Etched metallic texture."}',
-    )
+    client, _, _ = _build_client(tmp_path)
 
     tree_response = client.get("/api/tree")
-    assert tree_response.status_code == 200
-    tree_payload = tree_response.json()
-    assert tree_payload["source_root"] == str(source_root)
-    assert any(
-        item["relative_path"] == "image/prompts/scene.txt" for item in tree_payload["artifacts"]
-    )
-    species_artifact = next(
-        item
-        for item in tree_payload["artifacts"]
-        if item["relative_path"] == "image/blocks/species/goblin_v1.yaml"
-    )
-    assert species_artifact["is_authorable"] is True
-    assert species_artifact["policy_type"] == "species_block"
-    assert species_artifact["namespace"] == "image.blocks.species"
-    assert species_artifact["policy_key"] == "goblin"
-    assert species_artifact["variant"] == "v1"
-
-    prompt_artifact = next(
-        item
-        for item in tree_payload["artifacts"]
-        if item["relative_path"] == "image/prompts/scene.txt"
-    )
-    assert prompt_artifact["is_authorable"] is False
-    assert prompt_artifact["policy_type"] is None
-
-    tone_profile_artifact = next(
-        item
-        for item in tree_payload["artifacts"]
-        if item["relative_path"] == "image/tone_profiles/ledger_engraving_v1.json"
-    )
-    assert tone_profile_artifact["is_authorable"] is True
-    assert tone_profile_artifact["policy_type"] == "tone_profile"
-    assert tone_profile_artifact["namespace"] == "image.tone_profiles"
-    assert tone_profile_artifact["policy_key"] == "ledger_engraving"
-    assert tone_profile_artifact["variant"] == "v1"
-
-    descriptor_layer_artifact = next(
-        item
-        for item in tree_payload["artifacts"]
-        if item["relative_path"] == "image/descriptor_layers/id_card_v1.yaml"
-    )
-    assert descriptor_layer_artifact["is_authorable"] is True
-    assert descriptor_layer_artifact["policy_type"] == "descriptor_layer"
-    assert descriptor_layer_artifact["namespace"] == "image.descriptor_layers"
-    assert descriptor_layer_artifact["policy_key"] == "id_card"
-    assert descriptor_layer_artifact["variant"] == "v1"
-
-    registry_artifact = next(
-        item
-        for item in tree_payload["artifacts"]
-        if item["relative_path"] == "image/registries/species_registry.yaml"
-    )
-    assert registry_artifact["is_authorable"] is True
-    assert registry_artifact["policy_type"] == "registry"
-    assert registry_artifact["namespace"] == "image.registries"
-    assert registry_artifact["policy_key"] == "species_registry"
-    assert registry_artifact["variant"] == "v1"
-
-    assert all(
-        Path(item["relative_path"]).suffix.lower() in {".txt", ".yaml", ".yml", ".json"}
-        for item in tree_payload["artifacts"]
-    )
-    assert not any(item["relative_path"] == "image/.DS_Store" for item in tree_payload["artifacts"])
-    assert not any(item["relative_path"] == "image/notes.md" for item in tree_payload["artifacts"])
+    assert tree_response.status_code == 410
+    assert "Legacy tree endpoint is disabled" in tree_response.json()["detail"]
 
     read_response = client.get("/api/file", params={"relative_path": "image/prompts/scene.txt"})
-    assert read_response.status_code == 200
-    assert read_response.json()["content"] == "new scene prompt"
+    assert read_response.status_code == 410
+    assert "Legacy file endpoint is disabled" in read_response.json()["detail"]
 
     write_response = client.put(
         "/api/file",
         json={"relative_path": "image/prompts/scene.txt", "content": "edited prompt text"},
     )
     assert write_response.status_code == 410
-    assert "Direct file writes are disabled" in write_response.json()["detail"]
-
-    traversal_response = client.get("/api/file", params={"relative_path": "../escape.txt"})
-    assert traversal_response.status_code == 400
-    assert "escapes source root" in traversal_response.json()["detail"]
-
-    unsupported_read_response = client.get("/api/file", params={"relative_path": "image/.DS_Store"})
-    assert unsupported_read_response.status_code == 400
-    assert "Only .txt, .yaml, .yml, and .json" in unsupported_read_response.json()["detail"]
-
-    unsupported_write_response = client.put(
-        "/api/file",
-        json={"relative_path": "image/notes.md", "content": "should fail"},
-    )
-    assert unsupported_write_response.status_code == 410
-    assert "Direct file writes are disabled" in unsupported_write_response.json()["detail"]
+    assert "Legacy file endpoint is disabled" in write_response.json()["detail"]
 
 
 def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> None:
@@ -483,9 +392,8 @@ def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> Non
     client, _, _ = _build_client(tmp_path)
 
     tree_response = client.get("/api/tree", params={"root": "/tmp/override"})
-    assert tree_response.status_code == 400
-    assert "Legacy source override query parameters are disabled" in tree_response.json()["detail"]
-    assert "root" in tree_response.json()["detail"]
+    assert tree_response.status_code == 410
+    assert "Legacy tree endpoint is disabled" in tree_response.json()["detail"]
 
     file_response = client.get(
         "/api/file",
@@ -494,9 +402,8 @@ def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> Non
             "map_path": "/tmp/map.yaml",
         },
     )
-    assert file_response.status_code == 400
-    assert "Legacy source override query parameters are disabled" in file_response.json()["detail"]
-    assert "map_path" in file_response.json()["detail"]
+    assert file_response.status_code == 410
+    assert "Legacy file endpoint is disabled" in file_response.json()["detail"]
 
     validate_response = client.get("/api/validate", params={"map_path": "/tmp/map.yaml"})
     assert validate_response.status_code == 400
@@ -509,8 +416,8 @@ def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> Non
         params={"root": "/tmp/override"},
         json={"relative_path": "image/prompts/scene.txt", "content": "edited prompt text"},
     )
-    assert write_response.status_code == 400
-    assert "Legacy source override query parameters are disabled" in write_response.json()["detail"]
+    assert write_response.status_code == 410
+    assert "Legacy file endpoint is disabled" in write_response.json()["detail"]
 
 
 def test_api_first_inventory_and_detail_endpoints_proxy_service_payloads(

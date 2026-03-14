@@ -25,15 +25,11 @@ from .runtime_mode import (
 )
 from .web_models import (
     PolicyActivationScopeResponse,
-    PolicyFileResponse,
-    PolicyFileUpdateRequest,
-    PolicyFileUpdateResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyPublishRunProxyResponse,
     PolicySaveRequest,
     PolicySaveResponse,
-    PolicyTreeResponse,
     PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginRequest,
@@ -53,9 +49,7 @@ from .web_services import (
     build_policy_type_options_payload,
     build_runtime_auth_payload,
     build_runtime_login_payload,
-    build_tree_payload,
     build_validation_payload,
-    read_policy_file,
     resolve_source_root_for_web,
 )
 
@@ -344,49 +338,45 @@ def create_web_app(
             )
         )
 
-    @app.get("/api/tree", response_model=PolicyTreeResponse)
-    async def api_tree(request: Request) -> PolicyTreeResponse:
-        """Return canonical policy tree entries for the browser panel."""
+    @app.get("/api/tree")
+    async def api_tree():
+        """Legacy endpoint intentionally disabled in Phase 3.
 
-        source_root = _resolve_source_root_for_request(request)
-        return build_tree_payload(source_root)
-
-    @app.get("/api/file", response_model=PolicyFileResponse)
-    async def api_file_read(
-        request: Request,
-        relative_path: str = Query(min_length=1),
-    ) -> PolicyFileResponse:
-        """Read one source policy file by relative path."""
-
-        source_root = _resolve_source_root_for_request(request)
-        try:
-            content = read_policy_file(source_root, relative_path)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except (IsADirectoryError, NotADirectoryError, ValueError, OSError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-        return PolicyFileResponse(
-            source_root=str(source_root),
-            relative_path=relative_path,
-            content=content,
-        )
-
-    @app.put("/api/file", response_model=PolicyFileUpdateResponse)
-    async def api_file_write(
-        request: Request,
-        payload: PolicyFileUpdateRequest,
-    ) -> PolicyFileUpdateResponse:
-        """Legacy endpoint intentionally disabled in Phase 2.
-
-        Runtime authoring now flows through ``/api/policy-save`` so all writes
-        go through mud-server validate/save/activate contracts.
+        # BREAKING-CHANGE-IN-PROGRESS: disable legacy tree/file API routes;
+        # Affects: /api/tree, /api/file; Remove when: Phase 3 endpoint removals
+        # and operator docs/changelog updates are complete; Phase: 3
         """
-        _reject_legacy_source_overrides(request)
-        _ = payload
+
         raise HTTPException(
             status_code=410,
-            detail="Direct file writes are disabled. Use /api/policy-save.",
+            detail=(
+                "Legacy tree endpoint is disabled. Use /api/policies and "
+                "/api/policies/{policy_id} for canonical object workflows."
+            ),
+        )
+
+    @app.get("/api/file")
+    async def api_file_read():
+        """Legacy endpoint intentionally disabled in Phase 3."""
+
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Legacy file endpoint is disabled. Use /api/policies/{policy_id} "
+                "for reads and /api/policy-save for writes."
+            ),
+        )
+
+    @app.put("/api/file")
+    async def api_file_write():
+        """Legacy endpoint intentionally disabled in Phase 3."""
+
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "Legacy file endpoint is disabled. Use /api/policy-save for writes "
+                "and /api/policies/{policy_id} for canonical reads."
+            ),
         )
 
     @app.post("/api/policy-save", response_model=PolicySaveResponse)
