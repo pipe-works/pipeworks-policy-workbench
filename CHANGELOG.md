@@ -13,6 +13,19 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.19](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.18...pipeworks-policy-workbench-v0.1.19) (2026-03-14)
+
+
+### Features
+
+* **ui:** tie activation scope to selected world ([#60](https://github.com/pipe-works/pipeworks-policy-workbench/issues/60)) ([aa7b5f7](https://github.com/pipe-works/pipeworks-policy-workbench/commit/aa7b5f7c5f961604e94e4de38fb477276158faf7))
+
+
+### Fixes
+
+* **workbench:** hide inactive main tab panels ([ddc3556](https://github.com/pipe-works/pipeworks-policy-workbench/commit/ddc3556d0982d0054fc677003ce19038a7ed467e))
+* **workbench:** hide inactive main tab panels ([c8c570d](https://github.com/pipe-works/pipeworks-policy-workbench/commit/c8c570db2ddaaa8dc9bc211b12dd462def737561))
+
 ## [0.1.18](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.17...pipeworks-policy-workbench-v0.1.18) (2026-03-14)
 
 
