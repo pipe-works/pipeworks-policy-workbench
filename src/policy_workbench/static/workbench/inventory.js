@@ -166,6 +166,12 @@ async function refreshPolicyStatusOptions({ silent = true } = {}) {
 }
 
 export async function refreshPolicyFilterOptions({ silent = true } = {}) {
+  if (!isServerAuthorized()) {
+    renderPolicyTypeOptions({ items: [] });
+    renderPolicyNamespaceOptions({ items: [] });
+    renderPolicyStatusOptions({ items: [] });
+    return;
+  }
   await refreshPolicyTypeOptions({ silent });
   await refreshPolicyNamespaceOptions({ silent });
   await refreshPolicyStatusOptions({ silent });
