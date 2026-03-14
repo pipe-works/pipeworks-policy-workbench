@@ -34,13 +34,10 @@ export const dom = {
   activationScopeLabel: document.getElementById("activation-scope-label"),
   activationList: document.getElementById("activation-list"),
   themeToggle: document.getElementById("theme-toggle"),
-  validationCounts: document.getElementById("validation-counts"),
-  validationList: document.getElementById("validation-list"),
   statusText: document.getElementById("status-text"),
   statusSource: document.getElementById("status-source"),
   btnRefreshInventory: document.getElementById("btn-refresh-inventory"),
   btnSaveFile: document.getElementById("btn-save-file"),
   btnReloadFile: document.getElementById("btn-reload-file"),
   btnRefreshActivation: document.getElementById("btn-refresh-activation"),
-  btnRunValidation: document.getElementById("btn-run-validation"),
 };

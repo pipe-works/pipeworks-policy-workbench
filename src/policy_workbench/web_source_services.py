@@ -1,4 +1,4 @@
-"""Source-root, tree, file, and validation helpers for web routes.
+"""Source-root, tree, and file helpers for web routes.
 
 This module keeps filesystem-backed source operations isolated so
 ``web_services`` can remain an orchestration compatibility layer while Phase 2
@@ -10,46 +10,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from .mirror_map import load_mirror_map, resolve_mirror_map_path
-from .models import IssueLevel, PolicyTreeSnapshot
-from .pathing import resolve_policy_root
 from .policy_authoring import selector_from_relative_path
-from .sync_models import MirrorMap
 from .tree_model import build_policy_tree_snapshot
-from .validators import validate_snapshot
 from .web_models import (
     PolicyArtifactResponse,
     PolicyTreeResponse,
-    ValidationIssueResponse,
-    ValidationResponse,
 )
-
-
-def resolve_source_root_for_web(
-    *,
-    root_override: str | None,
-    map_path_override: str | None,
-    resolve_policy_root_fn: Callable[..., Path] = resolve_policy_root,
-    resolve_mirror_map_path_fn: Callable[..., Path] = resolve_mirror_map_path,
-    load_mirror_map_fn: Callable[[Path], MirrorMap] = load_mirror_map,
-) -> Path:
-    """Resolve canonical source root for web APIs.
-
-    Resolution precedence:
-    1. Explicit ``root_override``
-    2. ``source.root`` in mirror-map config
-    3. Default pathing resolution from ``resolve_policy_root``
-    """
-
-    if root_override:
-        return resolve_policy_root_fn(explicit_root=root_override)
-
-    resolved_map_path = resolve_mirror_map_path_fn(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map_fn(resolved_map_path)
-    if mirror_map.source_root is not None:
-        return mirror_map.source_root
-
-    return resolve_policy_root_fn(explicit_root=None)
 
 
 def build_tree_payload(
@@ -128,50 +94,6 @@ def write_policy_file(
     file_path.parent.mkdir(parents=True, exist_ok=True)
     file_path.write_text(content, encoding="utf-8")
     return len(content.encode("utf-8"))
-
-
-def build_validation_payload(
-    source_root: Path,
-    *,
-    filter_snapshot_to_supported_files: Callable[[PolicyTreeSnapshot], PolicyTreeSnapshot],
-    build_policy_tree_snapshot_fn=build_policy_tree_snapshot,
-    validate_snapshot_fn=validate_snapshot,
-) -> ValidationResponse:
-    """Build serialized validation payload for right-panel reporting."""
-
-    snapshot = build_policy_tree_snapshot_fn(source_root)
-    # Restrict validation scope to editor-supported artifacts so diagnostics
-    # reflect the active authoring surface and do not report noise from
-    # intentionally out-of-scope files.
-    report = validate_snapshot_fn(filter_snapshot_to_supported_files(snapshot))
-
-    issues = [
-        ValidationIssueResponse(
-            level=issue.level.value,
-            code=issue.code,
-            message=issue.message,
-            relative_path=issue.relative_path,
-        )
-        for issue in report.issues
-    ]
-
-    counts = {
-        IssueLevel.ERROR.value: report.count(IssueLevel.ERROR),
-        IssueLevel.WARNING.value: report.count(IssueLevel.WARNING),
-        IssueLevel.INFO.value: report.count(IssueLevel.INFO),
-    }
-
-    return ValidationResponse(
-        source_root=str(report.root),
-        source_kind="local_mirror_snapshot",
-        canonical_authority="mud_server_policy_api",
-        detail=(
-            "Validation inspects local mirror files only; canonical policy authority "
-            "remains mud-server policy APIs."
-        ),
-        counts=counts,
-        issues=issues,
-    )
 
 
 def resolve_file_under_root(source_root: Path, relative_path: str) -> Path:

@@ -17,7 +17,6 @@ from . import (
     web_runtime_services,
     web_source_services,
 )
-from .models import PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
 from .policy_authoring import selector_from_relative_path
 from .web_models import (
@@ -29,7 +28,6 @@ from .web_models import (
     PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginResponse,
-    ValidationResponse,
 )
 
 _EDITOR_FILE_SUFFIXES = {".txt", ".yaml", ".yml", ".json"}
@@ -87,18 +85,6 @@ class _PolicyHashEntry:
 # Keep private alias for test/backward compatibility while shared resolver is
 # adopted across modules.
 _MudApiRuntimeConfig = MudApiRuntimeConfig
-
-
-def resolve_source_root_for_web(
-    *,
-    root_override: str | None,
-    map_path_override: str | None,
-) -> Path:
-    """Resolve canonical source root for web APIs."""
-    return web_source_services.resolve_source_root_for_web(
-        root_override=root_override,
-        map_path_override=map_path_override,
-    )
 
 
 def build_runtime_auth_payload(
@@ -278,14 +264,6 @@ def build_policy_publish_run_payload(
         base_url_override=base_url_override,
         resolve_runtime_config=_resolve_mud_api_runtime_config,
         fetch_mud_api_json=_fetch_mud_api_json,
-    )
-
-
-def build_validation_payload(source_root: Path) -> ValidationResponse:
-    """Build serialized validation payload for right-panel reporting."""
-    return web_source_services.build_validation_payload(
-        source_root,
-        filter_snapshot_to_supported_files=_filter_snapshot_to_supported_files,
     )
 
 
@@ -526,14 +504,6 @@ def _validate_supported_editor_path(relative_path: str) -> None:
     """Raise ``ValueError`` when web editor is asked to read/write unsupported files."""
     web_diagnostics_services.validate_supported_editor_path(
         relative_path,
-        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
-    )
-
-
-def _filter_snapshot_to_supported_files(snapshot: PolicyTreeSnapshot) -> PolicyTreeSnapshot:
-    """Return snapshot narrowed to files supported by the web workbench editor."""
-    return web_diagnostics_services.filter_snapshot_to_supported_files(
-        snapshot,
         editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
     )
 

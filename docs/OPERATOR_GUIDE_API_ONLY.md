@@ -8,7 +8,6 @@ Authority model:
 
 1. Mud-server policy APIs are canonical.
 2. Policy Workbench is an API authoring client.
-3. Local mirror checks are optional diagnostics only, not canonical writes.
 
 ## Scope
 
@@ -67,31 +66,12 @@ Contract notes:
 
 1. Save flow is validate first, then upsert, then optional activate.
 2. Legacy tree/file endpoints (`GET /api/tree`, `GET|PUT /api/file`) are intentionally disabled (`410`).
-3. Legacy per-request source overrides (`root`, `map_path`) are disabled (`400`) for remaining source-backed diagnostics routes.
 
 Migration mapping:
 
 1. `GET /api/tree` is replaced by `GET /api/policies` for canonical inventory.
 2. `GET /api/file` is replaced by `GET /api/policies/{policy_id}` for canonical reads.
 3. `PUT /api/file` is replaced by `POST /api/policy-save` for canonical writes.
-
-## Optional Mirror Diagnostics
-
-Use only for local operational visibility, not canonical writes.
-
-```bash
-pyenv exec pw-policy doctor
-pyenv exec pw-policy validate
-pyenv exec pw-policy sync
-```
-
-Interpretation:
-
-1. Diagnostics can identify local mirror drift or file-shape issues.
-2. Diagnostics do not change canonical mud-server policy state.
-3. Canonical correctness is determined by mud-server API validation/save/activation behavior.
-4. `/api/validate` reports `source_kind=local_mirror_snapshot` and
-   `canonical_authority=mud_server_policy_api` to make authority boundaries explicit.
 
 ## Troubleshooting
 

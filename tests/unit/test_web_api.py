@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import URLError
@@ -406,12 +405,6 @@ def test_legacy_source_override_query_params_are_rejected(tmp_path: Path) -> Non
     assert file_response.status_code == 410
     assert "Legacy file endpoint is disabled" in file_response.json()["detail"]
 
-    validate_response = client.get("/api/validate", params={"map_path": "/tmp/map.yaml"})
-    assert validate_response.status_code == 400
-    assert "Legacy source override query parameters are disabled" in (
-        validate_response.json()["detail"]
-    )
-
     write_response = client.put(
         "/api/file",
         params={"root": "/tmp/override"},
@@ -805,48 +798,12 @@ def test_policy_save_endpoint_returns_503_when_runtime_mode_unavailable(
     assert "runtime mode unavailable" in response.json()["detail"]
 
 
-def test_validate_endpoint_reports_clean_snapshot(tmp_path: Path) -> None:
-    """Validation endpoint should report no issues for clean prompt fixtures."""
-
-    client, source_root, _ = _build_client(tmp_path)
-    _write_text(source_root / "image" / ".DS_Store", "ignored metadata file")
-    _write_text(source_root / "image" / "notes.md", "ignored markdown file")
-
-    response = client.get("/api/validate")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["source_kind"] == "local_mirror_snapshot"
-    assert payload["canonical_authority"] == "mud_server_policy_api"
-    assert "local mirror files only" in payload["detail"]
-    assert payload["counts"] == {"error": 0, "warning": 0, "info": 0}
-    assert payload["issues"] == []
-
-
-def test_validate_endpoint_returns_warning_when_source_root_is_unavailable(tmp_path: Path) -> None:
-    """Validation endpoint should return a warning payload when source root is missing."""
-
-    client, source_root, _ = _build_client(tmp_path)
-    shutil.rmtree(source_root)
-
-    response = client.get("/api/validate")
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["source_root"] == ""
-    assert payload["source_kind"] == "local_mirror_snapshot"
-    assert payload["canonical_authority"] == "mud_server_policy_api"
-    assert "could not be resolved" in payload["detail"]
-    assert payload["counts"] == {"error": 0, "warning": 1, "info": 0}
-    assert payload["issues"][0]["level"] == "warning"
-    assert payload["issues"][0]["code"] == "SOURCE_ROOT_UNAVAILABLE"
-    assert payload["issues"][0]["relative_path"] is None
-    assert str(source_root.resolve()) in payload["issues"][0]["message"]
-
-
 def test_sync_impact_endpoints_are_removed_from_web_app(tmp_path: Path) -> None:
     """Sync/Hash routes should be absent after Sync Impact removal from the web UI."""
 
     client, _, _ = _build_client(tmp_path)
     assert client.get("/api/hash-status").status_code == 404
+    assert client.get("/api/validate").status_code == 404
     assert client.get("/api/sync-plan").status_code == 404
     sync_compare_response = client.get(
         "/api/sync-compare",
