@@ -2,37 +2,29 @@
 
 from __future__ import annotations
 
-import json
-import os
-from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import urlopen
 
-from pipeworks_ipc.hashing import compute_payload_hash
+from pipeworks_ipc.hashing import compute_payload_hash as _compute_payload_hash
 
 from . import (
     mud_api_client,
+    web_diagnostics_services,
     web_local_policy_metadata,
     web_policy_proxy_services,
     web_runtime_services,
+    web_source_services,
 )
-from .mirror_map import load_mirror_map, resolve_mirror_map_path
-from .models import IssueLevel, PolicyTreeSnapshot
+from .models import PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
-from .pathing import resolve_policy_root
 from .policy_authoring import selector_from_relative_path
-from .sync_models import SyncAction, SyncActionType, SyncPlan
-from .sync_planner import build_sync_plan
-from .tree_model import build_policy_tree_snapshot
-from .validators import validate_snapshot
+from .sync_models import SyncAction, SyncPlan
 from .web_models import (
     HashCanonicalResponse,
     HashStatusResponse,
-    HashTargetStatusResponse,
     PolicyActivationScopeResponse,
-    PolicyArtifactResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyPublishRunProxyResponse,
@@ -42,9 +34,7 @@ from .web_models import (
     RuntimeLoginResponse,
     SyncActionResponse,
     SyncCompareResponse,
-    SyncCompareVariantResponse,
     SyncPlanResponse,
-    ValidationIssueResponse,
     ValidationResponse,
 )
 
@@ -71,6 +61,10 @@ _FALLBACK_POLICY_STATUSES = (
     "active",
     "archived",
 )
+
+# Backward-compatible module export: existing tests and downstream callers patch
+# ``web_services.compute_payload_hash`` directly.
+compute_payload_hash = _compute_payload_hash
 
 # IPC hashing remains intentionally even after removing the Sync Impact UI.
 #
@@ -106,58 +100,19 @@ def resolve_source_root_for_web(
     root_override: str | None,
     map_path_override: str | None,
 ) -> Path:
-    """Resolve canonical source root for web APIs.
-
-    Resolution precedence:
-    1. Explicit ``root_override``
-    2. ``source.root`` in mirror-map config
-    3. Default pathing resolution from ``resolve_policy_root``
-    """
-
-    if root_override:
-        return resolve_policy_root(explicit_root=root_override)
-
-    resolved_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map(resolved_map_path)
-    if mirror_map.source_root is not None:
-        return mirror_map.source_root
-
-    return resolve_policy_root(explicit_root=None)
+    """Resolve canonical source root for web APIs."""
+    return web_source_services.resolve_source_root_for_web(
+        root_override=root_override,
+        map_path_override=map_path_override,
+    )
 
 
 def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
     """Build serialized tree-browser payload for the web UI."""
-
-    snapshot = build_policy_tree_snapshot(source_root)
-    artifacts: list[PolicyArtifactResponse] = []
-    for artifact in snapshot.artifacts:
-        if not _is_supported_editor_file(artifact.relative_path):
-            continue
-        selector = selector_from_relative_path(artifact.relative_path)
-        artifacts.append(
-            PolicyArtifactResponse(
-                relative_path=artifact.relative_path,
-                role=artifact.role.value,
-                has_prompt_text=bool((artifact.prompt_text or "").strip()),
-                policy_type=selector.policy_type if selector else None,
-                namespace=selector.namespace if selector else None,
-                policy_key=selector.policy_key if selector else None,
-                variant=selector.variant if selector else None,
-                is_authorable=selector is not None,
-            )
-        )
-
-    # The tree sidebar is intentionally scoped to editable policy files only.
-    directory_set = {"policies"}
-    for artifact_response in artifacts:
-        parent = Path(artifact_response.relative_path).parent.as_posix()
-        if parent and parent != ".":
-            directory_set.add(parent)
-
-    return PolicyTreeResponse(
-        source_root=str(snapshot.root),
-        directories=sorted(directory_set),
-        artifacts=artifacts,
+    return web_source_services.build_tree_payload(
+        source_root,
+        is_supported_editor_file=_is_supported_editor_file,
+        selector_from_relative_path_fn=selector_from_relative_path,
     )
 
 
@@ -343,50 +298,31 @@ def build_policy_publish_run_payload(
 
 def read_policy_file(source_root: Path, relative_path: str) -> str:
     """Read one policy file by relative path with traversal protection."""
-
-    _validate_supported_editor_path(relative_path)
-    file_path = _resolve_file_under_root(source_root=source_root, relative_path=relative_path)
-    if not file_path.exists():
-        raise FileNotFoundError(f"Policy file not found: {relative_path}")
-    if not file_path.is_file():
-        raise IsADirectoryError(f"Policy path is not a file: {relative_path}")
-
-    return file_path.read_text(encoding="utf-8")
+    return web_source_services.read_policy_file(
+        source_root,
+        relative_path,
+        validate_supported_editor_path=_validate_supported_editor_path,
+        resolve_file_under_root=_resolve_file_under_root,
+    )
 
 
 def write_policy_file(source_root: Path, relative_path: str, content: str) -> int:
     """Write one policy file under source root and return bytes written."""
-
-    _validate_supported_editor_path(relative_path)
-    file_path = _resolve_file_under_root(source_root=source_root, relative_path=relative_path)
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_text(content, encoding="utf-8")
-    return len(content.encode("utf-8"))
+    return web_source_services.write_policy_file(
+        source_root,
+        relative_path,
+        content,
+        validate_supported_editor_path=_validate_supported_editor_path,
+        resolve_file_under_root=_resolve_file_under_root,
+    )
 
 
 def build_validation_payload(source_root: Path) -> ValidationResponse:
     """Build serialized validation payload for right-panel reporting."""
-
-    snapshot = build_policy_tree_snapshot(source_root)
-    report = validate_snapshot(_filter_snapshot_to_supported_files(snapshot))
-
-    issues = [
-        ValidationIssueResponse(
-            level=issue.level.value,
-            code=issue.code,
-            message=issue.message,
-            relative_path=issue.relative_path,
-        )
-        for issue in report.issues
-    ]
-
-    counts = {
-        IssueLevel.ERROR.value: report.count(IssueLevel.ERROR),
-        IssueLevel.WARNING.value: report.count(IssueLevel.WARNING),
-        IssueLevel.INFO.value: report.count(IssueLevel.INFO),
-    }
-
-    return ValidationResponse(source_root=str(report.root), counts=counts, issues=issues)
+    return web_source_services.build_validation_payload(
+        source_root,
+        filter_snapshot_to_supported_files=_filter_snapshot_to_supported_files,
+    )
 
 
 def build_sync_payload(
@@ -396,24 +332,10 @@ def build_sync_payload(
     include_unchanged: bool,
 ) -> SyncPlanResponse:
     """Build serialized sync-plan payload for impact visualization."""
-
-    mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map(mirror_map_path)
-    plan = _filter_sync_plan_to_supported_files(
-        build_sync_plan(source_root=source_root, mirror_map=mirror_map)
-    )
-
-    actions = [
-        _serialize_action(action)
-        for action in plan.actions
-        if include_unchanged or action.action != SyncActionType.UNCHANGED
-    ]
-
-    return SyncPlanResponse(
-        source_root=str(plan.source_root),
-        map_path=str(plan.map_path),
-        counts=_counts_for_plan(plan),
-        actions=actions,
+    return web_diagnostics_services.build_sync_payload(
+        source_root=source_root,
+        map_path_override=map_path_override,
+        include_unchanged=include_unchanged,
     )
 
 
@@ -423,11 +345,10 @@ def build_sync_plan_for_apply(
     map_path_override: str | None,
 ) -> SyncPlan:
     """Build raw sync plan object for apply endpoint execution."""
-
-    mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map(mirror_map_path)
-    plan = build_sync_plan(source_root=source_root, mirror_map=mirror_map)
-    return _filter_sync_plan_to_supported_files(plan)
+    return web_diagnostics_services.build_sync_plan_for_apply(
+        source_root=source_root,
+        map_path_override=map_path_override,
+    )
 
 
 def build_sync_compare_payload(
@@ -438,71 +359,11 @@ def build_sync_compare_payload(
     focus_target: str | None = None,
 ) -> SyncCompareResponse:
     """Build side-by-side source/target comparison payload for one path."""
-
-    _validate_supported_editor_path(relative_path)
-    mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map(mirror_map_path)
-
-    plan = _filter_sync_plan_to_supported_files(
-        build_sync_plan(source_root=source_root, mirror_map=mirror_map)
-    )
-    action_by_target = _action_by_target_for_relative_path(plan=plan, relative_path=relative_path)
-
-    source_path = source_root / relative_path
-    source_content = _read_optional_text(source_path)
-    source_exists = source_path.exists() and source_path.is_file()
-    source_signature = _content_signature(source_content=source_content, exists=source_exists)
-
-    signatures_seen: dict[str, int] = {source_signature: 1}
-    next_group_id = 2
-
-    variants: list[SyncCompareVariantResponse] = [
-        SyncCompareVariantResponse(
-            label=_canonical_source_label(source_root),
-            kind="source",
-            target=None,
-            action=None,
-            path=str(source_path),
-            exists=source_exists,
-            matches_source=True,
-            group_id=1,
-            content=source_content,
-        )
-    ]
-
-    targets_sorted = sorted(mirror_map.targets, key=lambda target: target.name)
-    if focus_target:
-        targets_sorted.sort(key=lambda target: (target.name != focus_target, target.name))
-
-    for target in targets_sorted:
-        target_path = target.root / relative_path
-        target_exists = target_path.exists() and target_path.is_file()
-        target_content = _read_optional_text(target_path)
-        signature = _content_signature(source_content=target_content, exists=target_exists)
-        if signature not in signatures_seen:
-            signatures_seen[signature] = next_group_id
-            next_group_id += 1
-
-        variants.append(
-            SyncCompareVariantResponse(
-                label=target.name,
-                kind="target",
-                target=target.name,
-                action=action_by_target.get(target.name),
-                path=str(target_path),
-                exists=target_exists,
-                matches_source=(signature == source_signature),
-                group_id=signatures_seen[signature],
-                content=target_content,
-            )
-        )
-
-    return SyncCompareResponse(
+    return web_diagnostics_services.build_sync_compare_payload(
+        source_root=source_root,
+        map_path_override=map_path_override,
         relative_path=relative_path,
-        source_root=str(source_root),
         focus_target=focus_target,
-        unique_variant_count=len(signatures_seen),
-        variants=variants,
     )
 
 
@@ -513,79 +374,10 @@ def build_hash_status_payload(
     canonical_snapshot_url_override: str | None = None,
 ) -> HashStatusResponse:
     """Build hash alignment status against canonical mud-server hash snapshot."""
-
-    mirror_map_path = resolve_mirror_map_path(explicit_map_path=map_path_override)
-    mirror_map = load_mirror_map(mirror_map_path)
-
-    canonical_entries = _collect_local_policy_entries(source_root)
-    canonical_by_path = {entry.relative_path: entry for entry in canonical_entries}
-    canonical_paths = set(canonical_by_path.keys())
-    canonical_snapshot: HashCanonicalResponse | None = None
-    canonical_url: str | None = None
-    canonical_error: str | None = None
-
-    try:
-        canonical_url = _resolve_canonical_hash_snapshot_url(canonical_snapshot_url_override)
-        canonical_snapshot = _fetch_canonical_hash_snapshot(canonical_url)
-    except ValueError as exc:
-        canonical_snapshot = None
-        canonical_error = str(exc)
-
-    target_statuses: list[HashTargetStatusResponse] = []
-    for target in sorted(mirror_map.targets, key=lambda current: current.name):
-        target_entries = _collect_local_policy_entries(target.root)
-        target_by_path = {entry.relative_path: entry for entry in target_entries}
-
-        missing_count = 0
-        different_count = 0
-        projected_entries: list[_PolicyHashEntry] = []
-
-        for relative_path in sorted(canonical_paths):
-            source_entry = canonical_by_path[relative_path]
-            target_entry = target_by_path.get(relative_path)
-            if target_entry is None:
-                missing_count += 1
-                projected_entries.append(
-                    _PolicyHashEntry(
-                        relative_path=relative_path,
-                        content_hash=_compute_missing_content_hash(relative_path),
-                    )
-                )
-                continue
-
-            projected_entries.append(target_entry)
-            if target_entry.content_hash != source_entry.content_hash:
-                different_count += 1
-
-        target_only_count = sum(1 for path in target_by_path if path not in canonical_paths)
-        target_root_hash = _compute_tree_hash(projected_entries)
-        matches_canonical = (
-            target_root_hash == canonical_snapshot.root_hash if canonical_snapshot else None
-        )
-
-        target_statuses.append(
-            HashTargetStatusResponse(
-                name=target.name,
-                file_count=len(target_entries),
-                root_hash=target_root_hash,
-                matches_canonical=matches_canonical,
-                missing_count=missing_count,
-                different_count=different_count,
-                target_only_count=target_only_count,
-            )
-        )
-
-    if canonical_snapshot is None:
-        status = "canonical_unavailable"
-    else:
-        status = "ok" if all(target.matches_canonical for target in target_statuses) else "drift"
-
-    return HashStatusResponse(
-        status=status,
-        canonical=canonical_snapshot,
-        canonical_url=canonical_url,
-        canonical_error=canonical_error,
-        targets=target_statuses,
+    return web_diagnostics_services.build_hash_status_payload(
+        source_root=source_root,
+        map_path_override=map_path_override,
+        canonical_snapshot_url_override=canonical_snapshot_url_override,
     )
 
 
@@ -746,47 +538,28 @@ def _mud_api_http_error_detail(exc: HTTPError) -> str:
 
 def _resolve_canonical_hash_snapshot_url(url_override: str | None) -> str:
     """Resolve canonical hash snapshot URL from override, env var, or default."""
-
-    candidate = url_override or os.getenv(_CANONICAL_HASH_URL_ENV) or _DEFAULT_CANONICAL_HASH_URL
-    normalized = (candidate or "").strip()
-    if not normalized:
-        raise ValueError("Canonical hash snapshot URL must not be empty")
-    return normalized
+    return web_diagnostics_services.resolve_canonical_hash_snapshot_url(
+        url_override,
+        canonical_hash_url_env=_CANONICAL_HASH_URL_ENV,
+        default_canonical_hash_url=_DEFAULT_CANONICAL_HASH_URL,
+    )
 
 
 def _fetch_canonical_hash_snapshot(url: str) -> HashCanonicalResponse:
     """Fetch and validate canonical mud-server hash snapshot payload."""
-
-    request = Request(url=url, headers={"Accept": "application/json"})
-    try:
-        with urlopen(request, timeout=5.0) as response:  # noqa: S310
-            payload = json.loads(response.read().decode("utf-8"))
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Unable to fetch canonical hash snapshot from {url}: {exc}") from exc
-
-    validated = HashCanonicalResponse.model_validate(payload)
-    if not isinstance(validated, HashCanonicalResponse):
-        raise ValueError(f"Canonical hash snapshot from {url} did not match expected schema")
-    return validated
+    return web_diagnostics_services.fetch_canonical_hash_snapshot(
+        url,
+        opener=urlopen,
+        response_model=HashCanonicalResponse,
+    )
 
 
 def _collect_local_policy_entries(policy_root: Path) -> list[_PolicyHashEntry]:
     """Collect deterministic policy file hash entries from ``policy_root``."""
-
-    entries: list[_PolicyHashEntry] = []
-    for path in sorted(policy_root.rglob("*")):
-        if not path.is_file() or path.suffix.lower() not in _EDITOR_FILE_SUFFIXES:
-            continue
-
-        relative_path = _normalize_relative_path(path.relative_to(policy_root).as_posix())
-        entries.append(
-            _PolicyHashEntry(
-                relative_path=relative_path,
-                content_hash=_compute_file_hash(relative_path, path.read_bytes()),
-            )
-        )
-
-    return entries
+    return [
+        _PolicyHashEntry(relative_path=entry.relative_path, content_hash=entry.content_hash)
+        for entry in web_diagnostics_services.collect_local_policy_entries(policy_root)
+    ]
 
 
 def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
@@ -798,19 +571,11 @@ def _compute_file_hash(relative_path: str, content_bytes: bytes) -> str:
     fallback keeps behavior stable in constrained environments.
     """
 
-    helper = getattr(ipc_hashing, "compute_policy_file_hash", None) if ipc_hashing else None
-    if callable(helper):
-        return str(helper(relative_path, content_bytes))
-
-    normalized_path = _normalize_relative_path(relative_path)
-    return str(
-        compute_payload_hash(
-            {
-                "hash_version": _HASH_VERSION,
-                "relative_path": normalized_path,
-                "content_bytes_hex": content_bytes.hex(),
-            }
-        )
+    return web_diagnostics_services.compute_file_hash(
+        relative_path,
+        content_bytes,
+        ipc_hashing_module=ipc_hashing,
+        hash_version=_HASH_VERSION,
     )
 
 
@@ -822,52 +587,31 @@ def _compute_tree_hash(entries: list[_PolicyHashEntry]) -> str:
     A payload-hash fallback remains for robust local execution.
     """
 
-    helper = getattr(ipc_hashing, "compute_policy_tree_hash", None) if ipc_hashing else None
-    entry_cls = getattr(ipc_hashing, "PolicyHashEntry", None) if ipc_hashing else None
-    if callable(helper) and entry_cls is not None:
-        ipc_entries = [
-            entry_cls(relative_path=entry.relative_path, content_hash=entry.content_hash)
-            for entry in entries
-        ]
-        return str(helper(ipc_entries))
-
-    payload_entries = [
-        {
-            "relative_path": _normalize_relative_path(entry.relative_path),
-            "content_hash": entry.content_hash,
-        }
+    diagnostics_entries = [
+        web_diagnostics_services.PolicyHashEntry(
+            relative_path=entry.relative_path,
+            content_hash=entry.content_hash,
+        )
         for entry in entries
     ]
-    payload_entries.sort(key=lambda item: str(item["relative_path"]))
-    return str(compute_payload_hash({"hash_version": _HASH_VERSION, "entries": payload_entries}))
+    return web_diagnostics_services.compute_tree_hash(
+        entries=diagnostics_entries,
+        ipc_hashing_module=ipc_hashing,
+        hash_version=_HASH_VERSION,
+    )
 
 
 def _compute_missing_content_hash(relative_path: str) -> str:
     """Build deterministic hash marker for missing canonical-managed files."""
-
-    normalized_path = _normalize_relative_path(relative_path)
-    return str(
-        compute_payload_hash(
-            {
-                "hash_version": _HASH_VERSION,
-                "relative_path": normalized_path,
-                "missing": True,
-            }
-        )
+    return web_diagnostics_services.compute_missing_content_hash(
+        relative_path,
+        hash_version=_HASH_VERSION,
     )
 
 
 def _normalize_relative_path(relative_path: str) -> str:
     """Normalize a policy-relative path and reject traversal-like values."""
-
-    as_posix = PurePosixPath(relative_path.replace("\\", "/")).as_posix()
-    if as_posix.startswith("../") or "/../" in f"/{as_posix}":
-        raise ValueError(f"Policy relative path must not traverse upwards: {relative_path!r}")
-
-    normalized = as_posix.lstrip("./")
-    if normalized in {"", "."}:
-        raise ValueError("Policy relative path must not be empty")
-    return normalized
+    return web_diagnostics_services.normalize_relative_path(relative_path)
 
 
 def _resolve_file_under_root(source_root: Path, relative_path: str) -> Path:
@@ -875,123 +619,72 @@ def _resolve_file_under_root(source_root: Path, relative_path: str) -> Path:
 
     Raises ``ValueError`` when the resolved path escapes source_root.
     """
-
-    candidate = (source_root / relative_path).resolve()
-
-    if source_root not in candidate.parents and candidate != source_root:
-        raise ValueError(f"Relative path escapes source root: {relative_path}")
-
-    return candidate
+    return web_source_services.resolve_file_under_root(source_root, relative_path)
 
 
 def _serialize_action(action: SyncAction) -> SyncActionResponse:
     """Convert planner action into JSON-serializable web response model."""
-
-    return SyncActionResponse(
-        target=action.target_name,
-        relative_path=action.relative_path,
-        action=action.action.value,
-        source_path=str(action.source_path) if action.source_path else None,
-        target_path=str(action.target_path) if action.target_path else None,
-        reason=action.reason,
-    )
+    return web_diagnostics_services.serialize_action(action)
 
 
 def _counts_for_plan(plan: SyncPlan) -> dict[str, int]:
     """Count action types from a sync plan."""
-
-    counts = Counter(action.action for action in plan.actions)
-    return {
-        SyncActionType.CREATE.value: counts[SyncActionType.CREATE],
-        SyncActionType.UPDATE.value: counts[SyncActionType.UPDATE],
-        SyncActionType.UNCHANGED.value: counts[SyncActionType.UNCHANGED],
-        SyncActionType.TARGET_ONLY.value: counts[SyncActionType.TARGET_ONLY],
-    }
+    return web_diagnostics_services.counts_for_plan(plan)
 
 
 def _is_supported_editor_file(relative_path: str) -> bool:
     """Return whether ``relative_path`` should be visible/editable in the web editor."""
-
-    return Path(relative_path).suffix.lower() in _EDITOR_FILE_SUFFIXES
+    return web_diagnostics_services.is_supported_editor_file(
+        relative_path,
+        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
+    )
 
 
 def _validate_supported_editor_path(relative_path: str) -> None:
     """Raise ``ValueError`` when web editor is asked to read/write unsupported files."""
-
-    if not _is_supported_editor_file(relative_path):
-        raise ValueError(
-            "Only .txt, .yaml, .yml, and .json policy files are supported by the web editor"
-        )
+    web_diagnostics_services.validate_supported_editor_path(
+        relative_path,
+        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
+    )
 
 
 def _filter_snapshot_to_supported_files(snapshot: PolicyTreeSnapshot) -> PolicyTreeSnapshot:
     """Return snapshot narrowed to files supported by the web workbench editor."""
-
-    supported_artifacts = [
-        artifact
-        for artifact in snapshot.artifacts
-        if _is_supported_editor_file(artifact.relative_path)
-    ]
-    return PolicyTreeSnapshot(
-        root=snapshot.root,
-        directories=snapshot.directories,
-        artifacts=supported_artifacts,
+    return web_diagnostics_services.filter_snapshot_to_supported_files(
+        snapshot,
+        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
     )
 
 
 def _filter_sync_plan_to_supported_files(plan: SyncPlan) -> SyncPlan:
     """Return sync plan narrowed to files supported by the web workbench editor."""
-
-    supported_actions = [
-        action for action in plan.actions if _is_supported_editor_file(action.relative_path)
-    ]
-    return SyncPlan(source_root=plan.source_root, map_path=plan.map_path, actions=supported_actions)
+    return web_diagnostics_services.filter_sync_plan_to_supported_files(
+        plan,
+        editor_file_suffixes=_EDITOR_FILE_SUFFIXES,
+    )
 
 
 def _action_by_target_for_relative_path(plan: SyncPlan, *, relative_path: str) -> dict[str, str]:
     """Return sync action type value keyed by target name for one relative path."""
-
-    actions: dict[str, str] = {}
-    for action in plan.actions:
-        if action.relative_path != relative_path:
-            continue
-        actions[action.target_name] = action.action.value
-    return actions
+    return web_diagnostics_services.action_by_target_for_relative_path(
+        plan=plan,
+        relative_path=relative_path,
+    )
 
 
 def _read_optional_text(path: Path | None) -> str | None:
     """Read UTF-8 text from ``path`` when available, otherwise return ``None``."""
-
-    if path is None:
-        return None
-    if not path.exists() or not path.is_file():
-        return None
-
-    try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ValueError(f"Unable to read text for diff: {path} ({exc})") from exc
+    return web_diagnostics_services.read_optional_text(path)
 
 
 def _content_signature(*, source_content: str | None, exists: bool) -> str:
     """Build deterministic content signature used for grouping variants."""
-
-    if not exists:
-        return "__missing__"
-    if source_content is None:
-        return "__unreadable__"
-    return str(compute_payload_hash({"content": source_content}))
+    return web_diagnostics_services.content_signature(
+        source_content=source_content,
+        exists=exists,
+    )
 
 
 def _canonical_source_label(source_root: Path) -> str:
     """Build human-readable source column label for compare modal."""
-
-    root_text = str(source_root).lower()
-    if "pipeworks_mud_server" in root_text:
-        return "canonical-source: mud-server"
-
-    repo_name = source_root.parts[-3] if len(source_root.parts) >= 3 else source_root.name
-    normalized = (
-        repo_name.replace("pipeworks_", "").replace("pipeworks-", "").replace("_", "-").strip("-")
-    )
-    return f"canonical-source: {normalized or 'source'}"
+    return web_diagnostics_services.canonical_source_label(source_root)
