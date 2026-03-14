@@ -26,7 +26,6 @@ from .web_models import (
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyPublishRunProxyResponse,
-    PolicyTreeResponse,
     PolicyTypeOptionsResponse,
     RuntimeAuthResponse,
     RuntimeLoginResponse,
@@ -99,15 +98,6 @@ def resolve_source_root_for_web(
     return web_source_services.resolve_source_root_for_web(
         root_override=root_override,
         map_path_override=map_path_override,
-    )
-
-
-def build_tree_payload(source_root: Path) -> PolicyTreeResponse:
-    """Build serialized tree-browser payload for the web UI."""
-    return web_source_services.build_tree_payload(
-        source_root,
-        is_supported_editor_file=_is_supported_editor_file,
-        selector_from_relative_path_fn=selector_from_relative_path,
     )
 
 
@@ -288,16 +278,6 @@ def build_policy_publish_run_payload(
         base_url_override=base_url_override,
         resolve_runtime_config=_resolve_mud_api_runtime_config,
         fetch_mud_api_json=_fetch_mud_api_json,
-    )
-
-
-def read_policy_file(source_root: Path, relative_path: str) -> str:
-    """Read one policy file by relative path with traversal protection."""
-    return web_source_services.read_policy_file(
-        source_root,
-        relative_path,
-        validate_supported_editor_path=_validate_supported_editor_path,
-        resolve_file_under_root=_resolve_file_under_root,
     )
 
 
