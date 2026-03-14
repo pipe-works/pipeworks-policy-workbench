@@ -7,6 +7,7 @@ import {
   readActivationScopeInputs,
   refreshActivationScope,
 } from "./inventory.js";
+import { setActiveMainTab } from "./tabs.js";
 
 let _fetchJson = null;
 let _setStatus = null;
@@ -37,6 +38,7 @@ export async function saveCurrentFile() {
   const activationScope = readActivationScopeInputs();
   if (activateAfterSave && !activationScope.worldId) {
     _setStatus("Cannot activate after save: world_id is required.");
+    setActiveMainTab("activation");
     return;
   }
 
@@ -83,6 +85,7 @@ export async function saveCurrentFile() {
       } else {
         statusMessage = `${statusMessage} Activated for scope ${activationScope.scope} (${mappingCount} mappings).`;
       }
+      setActiveMainTab("activation");
     }
     _setStatus(statusMessage);
     if (state.selectedPolicyRecord) {

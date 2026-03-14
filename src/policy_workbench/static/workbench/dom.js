@@ -1,4 +1,8 @@
 export const dom = {
+  mainTabEditor: document.getElementById("main-tab-editor"),
+  mainTabActivation: document.getElementById("main-tab-activation"),
+  mainPanelEditor: document.getElementById("main-panel-editor"),
+  mainPanelActivation: document.getElementById("main-panel-activation"),
   runtimeModeBadge: document.getElementById("runtime-mode-badge"),
   runtimeAuthBadge: document.getElementById("runtime-auth-badge"),
   runtimeModeSelect: document.getElementById("runtime-mode-select"),
@@ -32,6 +36,7 @@ export const dom = {
   activationWorldId: document.getElementById("activation-world-id"),
   activationClientProfile: document.getElementById("activation-client-profile"),
   activationScopeLabel: document.getElementById("activation-scope-label"),
+  activationSaveSummary: document.getElementById("activation-save-summary"),
   activationList: document.getElementById("activation-list"),
   themeToggle: document.getElementById("theme-toggle"),
   statusText: document.getElementById("status-text"),
@@ -39,5 +44,6 @@ export const dom = {
   btnRefreshInventory: document.getElementById("btn-refresh-inventory"),
   btnSaveFile: document.getElementById("btn-save-file"),
   btnReloadFile: document.getElementById("btn-reload-file"),
+  btnOpenActivationTab: document.getElementById("btn-open-activation-tab"),
   btnRefreshActivation: document.getElementById("btn-refresh-activation"),
 };

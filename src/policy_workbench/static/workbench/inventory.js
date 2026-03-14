@@ -476,16 +476,44 @@ export function readActivationScopeInputs() {
 
 export function updateActivationScopeLabel() {
   if (!dom.activationScopeLabel) {
+    updateActivationSaveSummary();
     return;
   }
   const { worldId, clientProfile } = readActivationScopeInputs();
   if (!worldId) {
     dom.activationScopeLabel.textContent = "scope: <missing world_id>";
+    updateActivationSaveSummary();
     return;
   }
   dom.activationScopeLabel.textContent = clientProfile
     ? `scope: ${worldId}:${clientProfile}`
     : `scope: ${worldId}`;
+  updateActivationSaveSummary();
+}
+
+export function updateActivationSaveSummary() {
+  if (!dom.activationSaveSummary) {
+    return;
+  }
+  const activateAfterSave = Boolean(dom.activationEnable?.checked);
+  const { worldId, scope } = readActivationScopeInputs();
+  const summaryLabel = dom.activationSaveSummary;
+  summaryLabel.classList.remove("activation-save-summary__meta--warning");
+
+  if (!activateAfterSave) {
+    summaryLabel.textContent = worldId
+      ? `Activation after save: Off · Scope: ${scope}`
+      : "Activation after save: Off · Scope: <missing world_id>";
+    return;
+  }
+
+  if (!worldId) {
+    summaryLabel.textContent = "Activation after save: On · Scope: <missing world_id>";
+    summaryLabel.classList.add("activation-save-summary__meta--warning");
+    return;
+  }
+
+  summaryLabel.textContent = `Activation after save: On · Scope: ${scope}`;
 }
 
 export function renderActivationMessage(message, tone = "info") {

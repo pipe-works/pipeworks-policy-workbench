@@ -14,6 +14,7 @@ import {
   refreshPolicyNamespaceOptions,
   renderActivationMessage,
   renderUnauthorizedServerState,
+  updateActivationSaveSummary,
   updateActivationScopeLabel,
 } from "./inventory.js";
 import { reloadCurrentFile, saveCurrentFile } from "./editor_actions.js";
@@ -22,6 +23,7 @@ import {
   loginRuntimeSession,
   setRuntimeMode,
 } from "./runtime_session.js";
+import { setActiveMainTab, wireMainTabEvents } from "./tabs.js";
 
 let _setStatus = null;
 
@@ -154,11 +156,19 @@ function wireActivationEvents() {
   if (dom.activationClientProfile) {
     dom.activationClientProfile.addEventListener("input", updateActivationScopeLabel);
   }
+  if (dom.activationEnable) {
+    dom.activationEnable.addEventListener("change", updateActivationSaveSummary);
+  }
 }
 
 function wireActionEvents() {
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
+  if (dom.btnOpenActivationTab) {
+    dom.btnOpenActivationTab.addEventListener("click", () => {
+      setActiveMainTab("activation");
+    });
+  }
 }
 
 async function bootstrapInitialData() {
@@ -182,6 +192,8 @@ async function bootstrapInitialData() {
 
 export async function initializeWorkbench() {
   requireBootDeps();
+  wireMainTabEvents();
+  setActiveMainTab("editor");
   wireRuntimeEvents();
   wireInventoryEvents();
   wireActivationEvents();
