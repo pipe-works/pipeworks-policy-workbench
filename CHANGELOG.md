@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.13](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.12...pipeworks-policy-workbench-v0.1.13) (2026-03-14)
+
+
+### Features
+
+* **workbench:** align inventory with policy capabilities and db object model ([#36](https://github.com/pipe-works/pipeworks-policy-workbench/issues/36)) ([9203988](https://github.com/pipe-works/pipeworks-policy-workbench/commit/920398805bdb8af3244a388f8b9088c649c1f5b8))
+
 ## [0.1.12](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.11...pipeworks-policy-workbench-v0.1.12) (2026-03-13)
 
 
