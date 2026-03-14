@@ -12,12 +12,12 @@ import json
 import re
 from dataclasses import dataclass
 from typing import cast
-from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import urlopen
 
 import yaml  # type: ignore[import-untyped]
 
+from . import mud_api_client
 from .extractors import extract_yaml_text_field
 from .mud_api_runtime import resolve_mud_api_runtime_config
 
@@ -557,41 +557,22 @@ def _request_json(
     allow_not_found: bool = False,
 ) -> dict[str, object] | None:
     """Issue one HTTP request and decode JSON response with stable errors."""
-    body = None
-    headers = {"Accept": "application/json"}
-    if json_payload is not None:
-        headers["Content-Type"] = "application/json"
-        body = json.dumps(json_payload).encode("utf-8")
-
-    request = Request(url=url, method=method, data=body, headers=headers)
-    try:
-        with urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
-            parsed = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        if allow_not_found and exc.code == 404:
-            return None
-        detail = _http_error_detail(exc)
-        raise ValueError(f"Mud policy API request failed ({method} {url}): {detail}") from exc
-    except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Mud policy API request failed ({method} {url}): {exc}") from exc
-
-    if not isinstance(parsed, dict):
-        raise ValueError(f"Mud policy API response for {method} {url} was not a JSON object.")
-    return parsed
+    # Wrapper preserved so existing call sites/tests keep using the legacy
+    # helper name while transport behavior is centralized in one module.
+    return mud_api_client.request_json(
+        method=method,
+        url=url,
+        timeout_seconds=timeout_seconds,
+        json_payload=cast(dict[str, object] | None, json_payload),
+        allow_not_found=allow_not_found,
+        error_prefix="Mud policy API request failed",
+        non_object_error_message=(
+            f"Mud policy API response for {method} {url} was not a JSON object."
+        ),
+        opener=urlopen,
+    )
 
 
-def _http_error_detail(exc: HTTPError) -> str:
+def _http_error_detail(exc: object) -> str:
     """Extract best-effort detail text from HTTP error responses."""
-    default_detail = f"HTTP {exc.code}"
-    try:
-        payload = json.loads(exc.read().decode("utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default_detail
-    if isinstance(payload, dict):
-        detail = payload.get("detail")
-        code = payload.get("code")
-        if detail and code:
-            return f"{code}: {detail}"
-        if detail:
-            return str(detail)
-    return default_detail
+    return mud_api_client.mud_api_http_error_detail(exc)
