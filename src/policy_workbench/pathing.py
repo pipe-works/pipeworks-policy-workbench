@@ -10,10 +10,37 @@ import os
 from pathlib import Path
 
 ENV_POLICY_ROOT = "PW_POLICY_CANONICAL_ROOT"
-DEFAULT_POLICY_ROOT = Path(
-    "/Users/aapark/pipe-works-development/pipeworks_mud_server/"
-    "data/worlds/pipeworks_web/policies"
-)
+DEFAULT_WORLD_ID = "pipeworks_web"
+
+
+def _default_policy_root_candidates() -> tuple[Path, ...]:
+    """Return deterministic default root candidates for workspace-local execution.
+
+    Candidate order:
+    1. sibling mud-server repository in the common workspace layout
+    2. in-repo fallback path (useful for fixture-style local setups)
+    """
+
+    repo_root = Path(__file__).resolve().parents[2]
+    workspace_root = repo_root.parent
+
+    mud_server_default = (
+        workspace_root / "pipeworks_mud_server" / "data" / "worlds" / DEFAULT_WORLD_ID / "policies"
+    )
+    local_repo_default = repo_root / "data" / "worlds" / DEFAULT_WORLD_ID / "policies"
+
+    return (mud_server_default, local_repo_default)
+
+
+def _validate_existing_dir(path: Path, *, source_label: str) -> Path:
+    """Validate that ``path`` exists as a directory and return its resolved form."""
+
+    resolved = path.resolve()
+    if not resolved.exists():
+        raise FileNotFoundError(f"{source_label} not found: {resolved}")
+    if not resolved.is_dir():
+        raise NotADirectoryError(f"{source_label} is not a directory: {resolved}")
+    return resolved
 
 
 def resolve_policy_root(explicit_root: str | None = None) -> Path:
@@ -22,7 +49,7 @@ def resolve_policy_root(explicit_root: str | None = None) -> Path:
     Resolution order:
     1. explicit CLI argument (`explicit_root`)
     2. environment variable (`PW_POLICY_CANONICAL_ROOT`)
-    3. repository default path (`DEFAULT_POLICY_ROOT`)
+    3. workspace-local default candidates (`_default_policy_root_candidates`)
 
     Raises:
         FileNotFoundError: when resolved path does not exist.
@@ -30,19 +57,21 @@ def resolve_policy_root(explicit_root: str | None = None) -> Path:
     """
 
     raw_value = explicit_root or os.getenv(ENV_POLICY_ROOT)
+    if raw_value:
+        candidate = Path(os.path.expandvars(raw_value)).expanduser()
+        try:
+            return _validate_existing_dir(candidate, source_label="Canonical policy root")
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(f"{exc}. Provide --root or set {ENV_POLICY_ROOT}.") from exc
 
-    # Prefer explicit values first; this supports ad-hoc validation against
-    # fixture trees or temporary working directories.
-    candidate = Path(raw_value).expanduser() if raw_value else DEFAULT_POLICY_ROOT
-    resolved = candidate.resolve()
+    checked_defaults: list[Path] = []
+    for candidate in _default_policy_root_candidates():
+        checked_defaults.append(candidate.resolve())
+        if candidate.exists() and candidate.is_dir():
+            return candidate.resolve()
 
-    if not resolved.exists():
-        raise FileNotFoundError(
-            "Canonical policy root not found: "
-            f"{resolved}. Provide --root or set {ENV_POLICY_ROOT}."
-        )
-
-    if not resolved.is_dir():
-        raise NotADirectoryError(f"Canonical policy root is not a directory: {resolved}")
-
-    return resolved
+    checked_text = ", ".join(str(path) for path in checked_defaults)
+    raise FileNotFoundError(
+        "Canonical policy root not found in default locations. "
+        f"Checked: {checked_text}. Provide --root or set {ENV_POLICY_ROOT}."
+    )

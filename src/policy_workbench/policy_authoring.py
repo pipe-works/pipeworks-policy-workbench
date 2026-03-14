@@ -9,7 +9,6 @@ policy APIs. It provides:
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
 from typing import cast
@@ -20,6 +19,7 @@ from urllib.request import Request, urlopen
 import yaml  # type: ignore[import-untyped]
 
 from .extractors import extract_yaml_text_field
+from .mud_api_runtime import resolve_mud_api_runtime_config
 
 _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
 _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
@@ -315,27 +315,22 @@ def resolve_runtime_config(
     base_url_override: str | None = None,
 ) -> MudPolicyRuntimeConfig:
     """Resolve mud-server API runtime config from env and optional overrides."""
-    base_candidate = (
-        base_url_override
-        if base_url_override is not None
-        else os.getenv(_MUD_API_BASE_URL_ENV, _DEFAULT_MUD_API_BASE_URL)
-    )
-    base_url = (base_candidate or "").strip().rstrip("/")
-    if not base_url:
-        raise ValueError("Mud policy API base URL must not be empty.")
-
-    session_id_candidate = (
-        session_id_override
-        if session_id_override is not None
-        else os.getenv(_MUD_API_SESSION_ID_ENV, "")
-    )
-    session_id = (session_id_candidate or "").strip()
-    if not session_id:
-        raise ValueError(
+    shared_config = resolve_mud_api_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+        base_url_env_var=_MUD_API_BASE_URL_ENV,
+        session_id_env_var=_MUD_API_SESSION_ID_ENV,
+        default_base_url=_DEFAULT_MUD_API_BASE_URL,
+        empty_base_url_error="Mud policy API base URL must not be empty.",
+        missing_session_error=(
             "Mud policy session id is required. Set PW_POLICY_MUD_SESSION_ID or pass session_id."
-        )
-
-    return MudPolicyRuntimeConfig(base_url=base_url, session_id=session_id)
+        ),
+    )
+    return MudPolicyRuntimeConfig(
+        base_url=shared_config.base_url,
+        session_id=shared_config.session_id,
+        timeout_seconds=shared_config.timeout_seconds,
+    )
 
 
 def _resolve_next_policy_version(

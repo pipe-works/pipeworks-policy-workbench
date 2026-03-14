@@ -42,7 +42,12 @@ where = ["src"]
 exclude = ["tests*", "docs*", "examples*", "*__pycache__*"]
 
 [tool.setuptools.package-data]
-policy_workbench = ["templates/*.html", "static/*.css", "static/*.js"]
+policy_workbench = [
+  "templates/*.html",
+  "static/*.css",
+  "static/*.js",
+  "static/workbench/*.js",
+]
 
 [tool.black]
 line-length = 100
