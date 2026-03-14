@@ -143,6 +143,10 @@
   gap: var(--sp-2);
 }
 
+.main-tab-panel[hidden] {
+  display: none;
+}
+
 .panel--left {
   background: var(--col-bg);
 }
