@@ -38,12 +38,12 @@ function renderValidation(report) {
 
 export async function runValidation() {
   requireValidationDeps();
-  _setStatus("Running validation...");
+  _setStatus("Running mirror validation diagnostics...");
   try {
     const report = await _fetchJson("/api/validate");
     renderValidation(report);
-    _setStatus("Validation complete.");
+    _setStatus("Mirror validation diagnostics complete.");
   } catch (error) {
-    _setStatus(`Validation failed: ${error.message}`);
+    _setStatus(`Mirror validation failed: ${error.message}`);
   }
 }

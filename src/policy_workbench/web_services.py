@@ -54,7 +54,6 @@ _MUD_API_BASE_URL_ENV = "PW_POLICY_MUD_API_BASE_URL"
 _MUD_API_SESSION_ID_ENV = "PW_POLICY_MUD_SESSION_ID"
 _LOCAL_POLICY_TYPES_FILE_ENV = "PW_POLICY_LOCAL_POLICY_TYPES_FILE"
 _POLICY_API_ROLE_REQUIRED_DETAIL = "Policy API requires admin or superuser role."
-_POLICY_API_AUTH_PROBE_POLICY_TYPE = "__ppw_auth_probe__"
 _POLICY_ALLOWED_ROLES = {"admin", "superuser"}
 _FALLBACK_POLICY_TYPES = (
     "species_block",
@@ -171,7 +170,7 @@ def build_runtime_auth_payload(
     session_id_override: str | None,
     base_url_override: str | None = None,
 ) -> RuntimeAuthResponse:
-    """Build runtime auth probe payload for server-backed policy operations.
+    """Build runtime auth/capability payload for server-backed policy operations.
 
     Policy APIs on mud-server are already restricted to admin/superuser roles.
     This probe gives the workbench a single explicit auth state so the UI can
@@ -207,12 +206,7 @@ def build_runtime_auth_payload(
         )
 
     try:
-        _fetch_mud_api_json(
-            runtime=runtime,
-            method="GET",
-            path="/api/policies",
-            query_params={"policy_type": _POLICY_API_AUTH_PROBE_POLICY_TYPE},
-        )
+        _fetch_policy_capabilities_payload(runtime=runtime)
     except ValueError as exc:
         status, detail = _classify_runtime_auth_probe_error(str(exc))
         return RuntimeAuthResponse(
@@ -306,7 +300,7 @@ def build_policy_type_options_payload(
     session_id_override: str | None,
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy-type options sourced strictly from mud-server API inventory."""
+    """Return canonical policy-type options sourced from mud-server capabilities."""
     if source_kind != "server_api":
         raise ValueError("Runtime mode must be server_api.")
     runtime = _resolve_mud_api_runtime_config(
@@ -315,17 +309,15 @@ def build_policy_type_options_payload(
             base_url_override if base_url_override is not None else active_server_url
         ),
     )
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path="/api/policies",
-        query_params={},
+    payload = _fetch_policy_capabilities_payload(runtime=runtime)
+    api_policy_types = _extract_string_list_from_capabilities_payload(
+        payload=payload,
+        field_name="allowed_policy_types",
     )
-    api_policy_types = _extract_policy_types_from_inventory_payload(payload)
     return PolicyTypeOptionsResponse(
         items=api_policy_types,
         source="mud_server_api",
-        detail="Policy types resolved from mud-server API inventory.",
+        detail="Policy types resolved from mud-server policy capabilities.",
     )
 
 
@@ -337,7 +329,7 @@ def build_policy_namespace_options_payload(
     policy_type: str | None,
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy namespace options sourced strictly from mud-server API inventory."""
+    """Return canonical policy namespace options sourced from mud-server inventory."""
     if source_kind != "server_api":
         raise ValueError("Runtime mode must be server_api.")
     normalized_policy_type = str(policy_type or "").strip() or None
@@ -371,7 +363,7 @@ def build_policy_status_options_payload(
     session_id_override: str | None,
     base_url_override: str | None = None,
 ) -> PolicyTypeOptionsResponse:
-    """Return canonical policy status options sourced strictly from mud-server API inventory."""
+    """Return canonical policy status options sourced from mud-server capabilities."""
     if source_kind != "server_api":
         raise ValueError("Runtime mode must be server_api.")
     runtime = _resolve_mud_api_runtime_config(
@@ -380,17 +372,15 @@ def build_policy_status_options_payload(
             base_url_override if base_url_override is not None else active_server_url
         ),
     )
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path="/api/policies",
-        query_params={},
+    payload = _fetch_policy_capabilities_payload(runtime=runtime)
+    statuses = _extract_string_list_from_capabilities_payload(
+        payload=payload,
+        field_name="allowed_statuses",
     )
-    statuses = _extract_statuses_from_inventory_payload(payload)
     return PolicyTypeOptionsResponse(
         items=statuses,
         source="mud_server_api",
-        detail="Statuses resolved from mud-server API inventory.",
+        detail="Statuses resolved from mud-server policy capabilities.",
     )
 
 
@@ -782,7 +772,7 @@ def build_hash_status_payload(
 
 
 def _classify_runtime_auth_probe_error(error_detail: str) -> tuple[str, str]:
-    """Classify mud-server auth probe failure into stable UI-facing status."""
+    """Classify mud-server capability probe failure into stable UI-facing status."""
 
     if _POLICY_API_ROLE_REQUIRED_DETAIL in error_detail:
         return (
@@ -797,6 +787,29 @@ def _classify_runtime_auth_probe_error(error_detail: str) -> tuple[str, str]:
         )
 
     return ("error", error_detail)
+
+
+def _fetch_policy_capabilities_payload(*, runtime: _MudApiRuntimeConfig) -> dict[str, object]:
+    """Fetch mud-server policy capabilities for authorized sessions.
+
+    The workbench uses this endpoint as the canonical contract for
+    auth/capability checks and policy type/status option discovery.
+    """
+    payload = _fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policy-capabilities",
+        query_params={},
+    )
+    _ = _extract_string_list_from_capabilities_payload(
+        payload=payload,
+        field_name="allowed_policy_types",
+    )
+    _ = _extract_string_list_from_capabilities_payload(
+        payload=payload,
+        field_name="allowed_statuses",
+    )
+    return payload
 
 
 def _resolve_mud_api_runtime_config(
@@ -834,20 +847,22 @@ def _normalize_base_url(value: str | None) -> str:
     return base_url
 
 
-def _extract_policy_types_from_inventory_payload(payload: dict[str, object]) -> list[str]:
-    """Extract stable policy-type list from ``GET /api/policies`` payload."""
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raise ValueError("Mud API /api/policies response must include an 'items' list.")
+def _extract_string_list_from_capabilities_payload(
+    *,
+    payload: dict[str, object],
+    field_name: str,
+) -> list[str]:
+    """Extract and normalize one string-list field from capabilities payload."""
+    raw_values = payload.get(field_name)
+    if not isinstance(raw_values, list):
+        raise ValueError(f"Mud API /api/policy-capabilities response must include {field_name!r}.")
 
-    policy_types: list[str] = []
-    for item in raw_items:
-        if not isinstance(item, dict):
-            continue
-        policy_type = str(item.get("policy_type", "")).strip()
-        if policy_type:
-            policy_types.append(policy_type)
-    return _dedupe_preserve_order(policy_types)
+    values: list[str] = []
+    for value in raw_values:
+        normalized = str(value or "").strip()
+        if normalized:
+            values.append(normalized)
+    return _dedupe_preserve_order(values)
 
 
 def _extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> list[str]:
@@ -864,22 +879,6 @@ def _extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> li
         if namespace:
             namespaces.append(namespace)
     return _dedupe_preserve_order(namespaces)
-
-
-def _extract_statuses_from_inventory_payload(payload: dict[str, object]) -> list[str]:
-    """Extract stable status list from ``GET /api/policies`` payload."""
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raise ValueError("Mud API /api/policies response must include an 'items' list.")
-
-    statuses: list[str] = []
-    for item in raw_items:
-        if not isinstance(item, dict):
-            continue
-        status = str(item.get("status", "")).strip()
-        if status:
-            statuses.append(status)
-    return _dedupe_preserve_order(statuses)
 
 
 def _dedupe_preserve_order(values: list[str]) -> list[str]:

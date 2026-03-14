@@ -50,16 +50,18 @@ Notes:
 
 1. Policy API operations require `admin` or `superuser`.
 2. Session failures should be treated as auth/config errors, not policy-data errors.
+3. Type/status filter options are sourced from mud-server policy capabilities.
 
 ## Canonical Authoring Flow
 
-1. In Policy Inventory, choose filters (`type`, `namespace`, `status`) as needed.
+1. In Canonical Policy Objects (DB), choose filters (`type`, `namespace`, `status`) as needed.
 2. Click refresh/load inventory.
 3. Select one policy object.
-4. Edit raw content in editor.
-5. Save policy.
-6. Optionally enable activation and provide scope values before save.
-7. Confirm save response metadata (policy id, variant, version/hash, validation id).
+4. Confirm Current Object metadata (policy id/type/namespace/key/variant/status/version/hash).
+5. Edit policy object content in editor.
+6. Save policy.
+7. Optionally enable activation and provide scope values before save.
+8. Confirm save response metadata (policy id, variant, version/hash, validation id).
 
 Contract notes:
 
