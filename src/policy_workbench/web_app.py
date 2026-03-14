@@ -37,6 +37,7 @@ from .web_models import (
     RuntimeModeOptionResponse,
     RuntimeModeRequest,
     RuntimeModeResponse,
+    ValidationIssueResponse,
     ValidationResponse,
 )
 from .web_services import (
@@ -433,7 +434,33 @@ def create_web_app(
     @app.get("/api/validate", response_model=ValidationResponse)
     async def api_validate(request: Request) -> ValidationResponse:
         """Return mirror/local validation diagnostics for current source tree."""
-        source_root = _resolve_source_root_for_request(request)
+        try:
+            source_root = _resolve_source_root_for_request(request)
+        except HTTPException as exc:
+            detail_text = str(exc.detail)
+            if (
+                exc.status_code == 400
+                and "Legacy source override query parameters are disabled" not in detail_text
+            ):
+                return ValidationResponse(
+                    source_root="",
+                    source_kind="local_mirror_snapshot",
+                    canonical_authority="mud_server_policy_api",
+                    detail=(
+                        "Validation diagnostics are unavailable because a canonical local "
+                        "source root could not be resolved."
+                    ),
+                    counts={"error": 0, "warning": 1, "info": 0},
+                    issues=[
+                        ValidationIssueResponse(
+                            level="warning",
+                            code="SOURCE_ROOT_UNAVAILABLE",
+                            message=detail_text,
+                            relative_path=None,
+                        )
+                    ],
+                )
+            raise
         return build_validation_payload(source_root)
 
     return app
