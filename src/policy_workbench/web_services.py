@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import cast
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from pipeworks_ipc.hashing import compute_payload_hash
 
-from . import mud_api_client, web_runtime_services
+from . import (
+    mud_api_client,
+    web_local_policy_metadata,
+    web_policy_proxy_services,
+    web_runtime_services,
+)
 from .mirror_map import load_mirror_map, resolve_mirror_map_path
 from .models import IssueLevel, PolicyTreeSnapshot
 from .mud_api_runtime import MudApiRuntimeConfig, resolve_mud_api_runtime_config
@@ -33,7 +35,6 @@ from .web_models import (
     PolicyArtifactResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
-    PolicyObjectSummaryResponse,
     PolicyPublishRunProxyResponse,
     PolicyTreeResponse,
     PolicyTypeOptionsResponse,
@@ -277,58 +278,14 @@ def build_policy_inventory_payload(
     base_url_override: str | None = None,
 ) -> PolicyInventoryResponse:
     """Build API-first policy inventory payload from mud-server canonical API."""
-    runtime = _resolve_mud_api_runtime_config(
+    return web_policy_proxy_services.build_policy_inventory_payload(
+        policy_type=policy_type,
+        namespace=namespace,
+        status=status,
         session_id_override=session_id_override,
         base_url_override=base_url_override,
-    )
-
-    query_params: dict[str, str] = {}
-    if (policy_type or "").strip():
-        query_params["policy_type"] = str(policy_type).strip()
-    if (namespace or "").strip():
-        query_params["namespace"] = str(namespace).strip()
-    if (status or "").strip():
-        query_params["status"] = str(status).strip()
-
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path="/api/policies",
-        query_params=query_params,
-    )
-    raw_items = payload.get("items")
-    if not isinstance(raw_items, list):
-        raise ValueError("Mud policy inventory payload must include 'items' list.")
-
-    items: list[PolicyObjectSummaryResponse] = []
-    for raw_item in raw_items:
-        if not isinstance(raw_item, dict):
-            raise ValueError("Mud policy inventory items must be JSON objects.")
-        detail = PolicyObjectDetailResponse.model_validate(raw_item)
-        items.append(
-            PolicyObjectSummaryResponse(
-                policy_id=detail.policy_id,
-                policy_type=detail.policy_type,
-                namespace=detail.namespace,
-                policy_key=detail.policy_key,
-                variant=detail.variant,
-                schema_version=detail.schema_version,
-                policy_version=detail.policy_version,
-                status=detail.status,
-                content_hash=detail.content_hash,
-                updated_at=detail.updated_at,
-                updated_by=detail.updated_by,
-            )
-        )
-
-    return PolicyInventoryResponse(
-        filters={
-            "policy_type": query_params.get("policy_type"),
-            "namespace": query_params.get("namespace"),
-            "status": query_params.get("status"),
-        },
-        item_count=len(items),
-        items=items,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
 
 
@@ -340,21 +297,14 @@ def build_policy_object_detail_payload(
     base_url_override: str | None = None,
 ) -> PolicyObjectDetailResponse:
     """Build API-first detail payload for one policy object variant."""
-    runtime = _resolve_mud_api_runtime_config(
+    return web_policy_proxy_services.build_policy_object_detail_payload(
+        policy_id=policy_id,
+        variant=variant,
         session_id_override=session_id_override,
         base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
-    query_params: dict[str, str] = {}
-    if (variant or "").strip():
-        query_params["variant"] = str(variant).strip()
-
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path=f"/api/policies/{quote(policy_id, safe='')}",
-        query_params=query_params,
-    )
-    return cast(PolicyObjectDetailResponse, PolicyObjectDetailResponse.model_validate(payload))
 
 
 def build_policy_activation_scope_payload(
@@ -365,22 +315,13 @@ def build_policy_activation_scope_payload(
     base_url_override: str | None = None,
 ) -> PolicyActivationScopeResponse:
     """Build activation-scope payload from mud-server policy activation API."""
-    runtime = _resolve_mud_api_runtime_config(
+    return web_policy_proxy_services.build_policy_activation_scope_payload(
+        scope=scope,
+        effective=effective,
         session_id_override=session_id_override,
         base_url_override=base_url_override,
-    )
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path="/api/policy-activations",
-        query_params={
-            "scope": scope,
-            "effective": "true" if effective else "false",
-        },
-    )
-    return cast(
-        PolicyActivationScopeResponse,
-        PolicyActivationScopeResponse.model_validate(payload),
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
 
 
@@ -391,19 +332,12 @@ def build_policy_publish_run_payload(
     base_url_override: str | None = None,
 ) -> PolicyPublishRunProxyResponse:
     """Build publish-run payload proxy from mud-server canonical publish API."""
-    runtime = _resolve_mud_api_runtime_config(
+    return web_policy_proxy_services.build_policy_publish_run_payload(
+        publish_run_id=publish_run_id,
         session_id_override=session_id_override,
         base_url_override=base_url_override,
-    )
-    payload = _fetch_mud_api_json(
-        runtime=runtime,
-        method="GET",
-        path=f"/api/policy-publish/{publish_run_id}",
-        query_params={},
-    )
-    return cast(
-        PolicyPublishRunProxyResponse,
-        PolicyPublishRunProxyResponse.model_validate(payload),
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
     )
 
 
@@ -721,128 +655,48 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
 
 def _load_local_policy_types_from_disk() -> tuple[list[str], str, str | None]:
     """Load canonical policy types from local mud-server source file when available."""
-    source_path = _resolve_local_policy_types_source_path()
-    if source_path is None:
-        return (
-            list(_FALLBACK_POLICY_TYPES),
-            "fallback",
-            "Local mud-server canonical policy type source file was not found.",
-        )
-
-    values = _load_local_constant_set_values(
-        source_path=source_path,
-        constant_name="_SUPPORTED_POLICY_TYPES",
-    )
-    if values is None:
-        return (
-            list(_FALLBACK_POLICY_TYPES),
-            "fallback",
-            "Local policy type source file did not expose _SUPPORTED_POLICY_TYPES.",
-        )
-
-    parsed_policy_types = _dedupe_preserve_order(values)
-    if not parsed_policy_types:
-        return (
-            list(_FALLBACK_POLICY_TYPES),
-            "fallback",
-            "Local policy type source file did not provide usable policy types.",
-        )
-    return (
-        parsed_policy_types,
-        "local_disk",
-        f"Loaded canonical policy types from {source_path}.",
+    return web_local_policy_metadata.load_local_policy_types_from_disk(
+        fallback_policy_types=_FALLBACK_POLICY_TYPES,
+        resolve_source_path=_resolve_local_policy_types_source_path,
+        load_constant_set_values=_load_local_constant_set_values,
+        dedupe_preserve_order=_dedupe_preserve_order,
     )
 
 
 def _load_local_policy_statuses_from_disk() -> tuple[list[str], str, str | None]:
     """Load canonical policy statuses from local mud-server source file."""
-    source_path = _resolve_local_policy_types_source_path()
-    if source_path is None:
-        return (
-            list(_FALLBACK_POLICY_STATUSES),
-            "fallback",
-            "Local mud-server canonical policy status source file was not found.",
-        )
-
-    values = _load_local_constant_set_values(
-        source_path=source_path,
-        constant_name="_SUPPORTED_STATUSES",
-    )
-    if values is None:
-        return (
-            list(_FALLBACK_POLICY_STATUSES),
-            "fallback",
-            "Local policy status source file did not expose _SUPPORTED_STATUSES.",
-        )
-
-    parsed_statuses = _dedupe_preserve_order(values)
-    if not parsed_statuses:
-        return (
-            list(_FALLBACK_POLICY_STATUSES),
-            "fallback",
-            "Local policy status source file did not provide usable statuses.",
-        )
-    return (
-        parsed_statuses,
-        "local_disk",
-        f"Loaded canonical policy statuses from {source_path}.",
+    return web_local_policy_metadata.load_local_policy_statuses_from_disk(
+        fallback_policy_statuses=_FALLBACK_POLICY_STATUSES,
+        resolve_source_path=_resolve_local_policy_types_source_path,
+        load_constant_set_values=_load_local_constant_set_values,
+        dedupe_preserve_order=_dedupe_preserve_order,
     )
 
 
 def _resolve_local_policy_types_source_path() -> Path | None:
     """Resolve local canonical policy-type source file path."""
-    override = (os.getenv(_LOCAL_POLICY_TYPES_FILE_ENV, "") or "").strip()
-    if override:
-        return Path(override).expanduser()
-
-    workspace_root = Path(__file__).resolve().parents[3]
-    return (
-        workspace_root
-        / "pipeworks_mud_server"
-        / "src"
-        / "mud_server"
-        / "services"
-        / "policy_service.py"
+    return web_local_policy_metadata.resolve_local_policy_types_source_path(
+        local_policy_types_file_env=_LOCAL_POLICY_TYPES_FILE_ENV,
     )
 
 
 def _load_local_namespaces_from_disk(*, source_root: Path, policy_type: str | None) -> list[str]:
     """Derive canonical namespace options from local authorable policy files."""
-    if not source_root.exists() or not source_root.is_dir():
-        return []
-
-    namespaces: list[str] = []
-    for path in sorted(source_root.rglob("*")):
-        if not path.is_file():
-            continue
-        try:
-            relative_path = path.relative_to(source_root).as_posix()
-        except ValueError:
-            continue
-        if not _is_supported_editor_file(relative_path):
-            continue
-        selector = selector_from_relative_path(relative_path)
-        if selector is None:
-            continue
-        if policy_type and selector.policy_type != policy_type:
-            continue
-        namespaces.append(selector.namespace)
-    return _dedupe_preserve_order(namespaces)
+    return web_local_policy_metadata.load_local_namespaces_from_disk(
+        source_root=source_root,
+        policy_type=policy_type,
+        is_supported_editor_file=_is_supported_editor_file,
+        selector_from_relative_path=selector_from_relative_path,
+        dedupe_preserve_order=_dedupe_preserve_order,
+    )
 
 
 def _load_local_constant_set_values(*, source_path: Path, constant_name: str) -> list[str] | None:
     """Load one module-level set constant list from a Python source file."""
-    if not source_path.exists():
-        return None
-    try:
-        text = source_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    pattern = rf"{re.escape(constant_name)}\s*=\s*{{(?P<body>[^}}]*)}}"
-    match = re.search(pattern, text, flags=re.DOTALL)
-    if match is None:
-        return None
-    return re.findall(r"['\"]([^'\"]+)['\"]", match.group("body"))
+    return web_local_policy_metadata.load_local_constant_set_values(
+        source_path=source_path,
+        constant_name=constant_name,
+    )
 
 
 def _fetch_mud_api_json(

@@ -1,0 +1,191 @@
+"""Focused mud-server policy proxy service helpers for web routes.
+
+This module isolates inventory/detail/activation/publish proxy behavior so
+``web_services`` can remain an orchestration layer as Phase 2 decomposition
+continues.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol, cast
+from urllib.parse import quote
+
+from .mud_api_runtime import MudApiRuntimeConfig
+from .web_models import (
+    PolicyActivationScopeResponse,
+    PolicyInventoryResponse,
+    PolicyObjectDetailResponse,
+    PolicyObjectSummaryResponse,
+    PolicyPublishRunProxyResponse,
+)
+
+
+class RuntimeConfigResolver(Protocol):
+    """Callable contract for runtime config resolution."""
+
+    def __call__(
+        self,
+        *,
+        session_id_override: str | None,
+        base_url_override: str | None = None,
+    ) -> MudApiRuntimeConfig: ...
+
+
+class AuthenticatedMudApiFetcher(Protocol):
+    """Callable contract for authenticated mud-server API JSON fetches."""
+
+    def __call__(
+        self,
+        *,
+        runtime: MudApiRuntimeConfig,
+        method: str,
+        path: str,
+        query_params: dict[str, str],
+    ) -> dict[str, object]: ...
+
+
+def build_policy_inventory_payload(
+    *,
+    policy_type: str | None,
+    namespace: str | None,
+    status: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None,
+    resolve_runtime_config: RuntimeConfigResolver,
+    fetch_mud_api_json: AuthenticatedMudApiFetcher,
+) -> PolicyInventoryResponse:
+    """Build policy inventory payload from mud-server canonical API."""
+    runtime = resolve_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
+
+    query_params: dict[str, str] = {}
+    if (policy_type or "").strip():
+        query_params["policy_type"] = str(policy_type).strip()
+    if (namespace or "").strip():
+        query_params["namespace"] = str(namespace).strip()
+    if (status or "").strip():
+        query_params["status"] = str(status).strip()
+
+    payload = fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policies",
+        query_params=query_params,
+    )
+    raw_items = payload.get("items")
+    if not isinstance(raw_items, list):
+        raise ValueError("Mud policy inventory payload must include 'items' list.")
+
+    items: list[PolicyObjectSummaryResponse] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise ValueError("Mud policy inventory items must be JSON objects.")
+        detail = PolicyObjectDetailResponse.model_validate(raw_item)
+        items.append(
+            PolicyObjectSummaryResponse(
+                policy_id=detail.policy_id,
+                policy_type=detail.policy_type,
+                namespace=detail.namespace,
+                policy_key=detail.policy_key,
+                variant=detail.variant,
+                schema_version=detail.schema_version,
+                policy_version=detail.policy_version,
+                status=detail.status,
+                content_hash=detail.content_hash,
+                updated_at=detail.updated_at,
+                updated_by=detail.updated_by,
+            )
+        )
+
+    return PolicyInventoryResponse(
+        filters={
+            "policy_type": query_params.get("policy_type"),
+            "namespace": query_params.get("namespace"),
+            "status": query_params.get("status"),
+        },
+        item_count=len(items),
+        items=items,
+    )
+
+
+def build_policy_object_detail_payload(
+    *,
+    policy_id: str,
+    variant: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None,
+    resolve_runtime_config: RuntimeConfigResolver,
+    fetch_mud_api_json: AuthenticatedMudApiFetcher,
+) -> PolicyObjectDetailResponse:
+    """Build detail payload for one policy object variant."""
+    runtime = resolve_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
+    query_params: dict[str, str] = {}
+    if (variant or "").strip():
+        query_params["variant"] = str(variant).strip()
+
+    payload = fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path=f"/api/policies/{quote(policy_id, safe='')}",
+        query_params=query_params,
+    )
+    return cast(PolicyObjectDetailResponse, PolicyObjectDetailResponse.model_validate(payload))
+
+
+def build_policy_activation_scope_payload(
+    *,
+    scope: str,
+    effective: bool,
+    session_id_override: str | None,
+    base_url_override: str | None,
+    resolve_runtime_config: RuntimeConfigResolver,
+    fetch_mud_api_json: AuthenticatedMudApiFetcher,
+) -> PolicyActivationScopeResponse:
+    """Build activation-scope payload from mud-server policy activation API."""
+    runtime = resolve_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
+    payload = fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path="/api/policy-activations",
+        query_params={
+            "scope": scope,
+            "effective": "true" if effective else "false",
+        },
+    )
+    return cast(
+        PolicyActivationScopeResponse,
+        PolicyActivationScopeResponse.model_validate(payload),
+    )
+
+
+def build_policy_publish_run_payload(
+    *,
+    publish_run_id: int,
+    session_id_override: str | None,
+    base_url_override: str | None,
+    resolve_runtime_config: RuntimeConfigResolver,
+    fetch_mud_api_json: AuthenticatedMudApiFetcher,
+) -> PolicyPublishRunProxyResponse:
+    """Build publish-run payload proxy from mud-server canonical publish API."""
+    runtime = resolve_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
+    payload = fetch_mud_api_json(
+        runtime=runtime,
+        method="GET",
+        path=f"/api/policy-publish/{publish_run_id}",
+        query_params={},
+    )
+    return cast(
+        PolicyPublishRunProxyResponse,
+        PolicyPublishRunProxyResponse.model_validate(payload),
+    )
