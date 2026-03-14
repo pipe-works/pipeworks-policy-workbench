@@ -10,6 +10,41 @@
 
 * `/api/validate` now returns explicit authority metadata (`source_kind=local_mirror_snapshot`, `canonical_authority=mud_server_policy_api`) so mirror diagnostics are clearly non-authoritative
 
+## [0.1.15](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.14...pipeworks-policy-workbench-v0.1.15) (2026-03-14)
+
+
+### Fixes
+
+* **web:** clarify mirror validation authority metadata ([d5c4fee](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d5c4feea4b5e357bd296172f21670d05b1d3bccc))
+* **web:** clarify mirror validation authority metadata ([94db9cc](https://github.com/pipe-works/pipeworks-policy-workbench/commit/94db9ccb564d673f01cd463a82d9ee90c3fdfc46))
+* **workbench:** harden root portability and package nested ui modules ([#39](https://github.com/pipe-works/pipeworks-policy-workbench/issues/39)) ([4b82f2f](https://github.com/pipe-works/pipeworks-policy-workbench/commit/4b82f2f7985bf291ee4ba58265d4a8c781891655))
+
+
+### Documentation
+
+* **web:** finalize phase-4 intent comments ([d43b098](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d43b098ddfa58c702431d309f29ffe390af1cf94))
+* **web:** finalize phase-4 intent comments ([879bef8](https://github.com/pipe-works/pipeworks-policy-workbench/commit/879bef8f53945a9c4ba1cfc36e40d7074e0efd75))
+
+
+### Internal Changes
+
+* extract diagnostics and source web services ([67ce60c](https://github.com/pipe-works/pipeworks-policy-workbench/commit/67ce60c4d701ff8e00e2276ff5c72e35344cfc60))
+* extract diagnostics and source web services ([841cdfa](https://github.com/pipe-works/pipeworks-policy-workbench/commit/841cdfadf5deb4e658c823545938d1f59accb571))
+* fence legacy tree and file endpoints ([6b4c32d](https://github.com/pipe-works/pipeworks-policy-workbench/commit/6b4c32d9590b4daea01449c21371bbd50da29130))
+* fence legacy tree and file endpoints ([1aaa667](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1aaa6670263cff2e4b8416d612f1354f4b413c27))
+* remove dead service wrappers and unwired tree module ([57200bc](https://github.com/pipe-works/pipeworks-policy-workbench/commit/57200bc06d3908457d47a0f721b6a216f640fe32))
+* remove dead service wrappers and unwired tree module ([b46be3f](https://github.com/pipe-works/pipeworks-policy-workbench/commit/b46be3f9db671628820ec688ced36324f0cebc30))
+* thin web routes with shared error handling ([168c16b](https://github.com/pipe-works/pipeworks-policy-workbench/commit/168c16b4dafc7dd8880881cd95fb04b5c413b93d))
+* thin web routes with shared error handling ([425e8ee](https://github.com/pipe-works/pipeworks-policy-workbench/commit/425e8ee4383cb37896e57275a85736313046dc20))
+* **web-services:** centralize mud api transport helpers ([2a7cdfa](https://github.com/pipe-works/pipeworks-policy-workbench/commit/2a7cdfae4023e5457ec11fc0a2a8cf2f83ee1547))
+* **web-services:** centralize mud api transport helpers ([b55e208](https://github.com/pipe-works/pipeworks-policy-workbench/commit/b55e20831b0bca173e523ae901dfdeeedb7ab5a4))
+* **web-services:** extract policy proxy and local metadata modules ([8fa1a28](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8fa1a28372969620d61658eb1e0e1fcc6933c00b))
+* **web-services:** extract policy proxy and local metadata modules ([d0e0ff4](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d0e0ff460a9ba2a2af6b745b61e21fe7514b06a9))
+* **web-services:** extract runtime auth option services ([d95a630](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d95a630b76a12e3ea90df857a01a651c5884b461))
+* **web-services:** extract runtime auth option services ([7fd215b](https://github.com/pipe-works/pipeworks-policy-workbench/commit/7fd215bc53431f50c2dc6d3cb5448c4853b309b2))
+* **web:** improve runtime intent comments and diagnostics guards ([d406448](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d406448ef050cb75d4667153064f22300787bdc3))
+* **web:** improve runtime intent comments and diagnostics guards ([dc0b401](https://github.com/pipe-works/pipeworks-policy-workbench/commit/dc0b4010c4fe75c878455e418e158cebe33a8eb9))
+
 ## [0.1.14](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.13...pipeworks-policy-workbench-v0.1.14) (2026-03-14)
 
 
