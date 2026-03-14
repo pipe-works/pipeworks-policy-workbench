@@ -114,6 +114,15 @@ function wireRuntimeEvents() {
 }
 
 function wireInventoryEvents() {
+  if (dom.inventoryWorld) {
+    dom.inventoryWorld.addEventListener("change", () => {
+      updateActivationScopeLabel();
+      if (!isServerAuthorized()) {
+        return;
+      }
+      void refreshActivationScope({ silent: true });
+    });
+  }
   if (dom.btnRefreshInventory) {
     dom.btnRefreshInventory.addEventListener("click", refreshPolicyInventory);
   }
@@ -150,9 +159,6 @@ function wireActivationEvents() {
       void refreshActivationScope();
     });
   }
-  if (dom.activationWorldId) {
-    dom.activationWorldId.addEventListener("input", updateActivationScopeLabel);
-  }
   if (dom.activationClientProfile) {
     dom.activationClientProfile.addEventListener("input", updateActivationScopeLabel);
   }
@@ -180,7 +186,7 @@ async function bootstrapInitialData() {
     _setStatus(`Runtime mode load failed: ${error.message}`);
   }
   updateActivationScopeLabel();
-  renderActivationMessage("Select a scope and click Refresh Scope Mapping.");
+  renderActivationMessage("Select a world scope and click Refresh Scope Mapping.");
 
   if (isServerAuthorized()) {
     await refreshPolicyInventory();

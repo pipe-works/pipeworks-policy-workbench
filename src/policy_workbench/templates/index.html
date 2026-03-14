@@ -101,6 +101,12 @@
         </div>
         <div class="inventory-filters">
           <label class="inventory-filter">
+            <span class="inventory-filter__label">World</span>
+            <select id="inventory-world" class="select input--compact" aria-label="Policy world scope">
+              <option value="">No worlds available</option>
+            </select>
+          </label>
+          <label class="inventory-filter">
             <span class="inventory-filter__label">Type</span>
             <select id="inventory-policy-type" class="select input--compact" aria-label="Policy type filter">
               <option value="">All types</option>
@@ -170,7 +176,7 @@
           <input id="activation-enable" type="checkbox" />
           <span>Activate after save</span>
         </label>
-        <span id="activation-save-summary" class="meta-line">Activation after save: Off · Scope: pipeworks_web</span>
+        <span id="activation-save-summary" class="meta-line">Activation after save: Off · Scope: none selected</span>
         <button id="btn-open-activation-tab" class="btn btn--secondary btn--sm" type="button">
           Edit Activation Scope
         </button>
@@ -190,12 +196,9 @@
             <h2 class="panel__heading">Activation Scope</h2>
             <span id="activation-source-badge" class="badge badge--muted">Server API</span>
           </div>
+          <span id="activation-world-display" class="badge badge--muted">World: none selected</span>
         </div>
         <div class="activation-fields">
-          <label class="inventory-filter">
-            <span class="inventory-filter__label">World ID</span>
-            <input id="activation-world-id" class="input input--compact" type="text" value="pipeworks_web" />
-          </label>
           <label class="inventory-filter">
             <span class="inventory-filter__label">Client Profile (optional)</span>
             <input id="activation-client-profile" class="input input--compact" type="text" placeholder="mobile" />
@@ -203,7 +206,7 @@
         </div>
         <div class="activation-shell__meta">
           <button id="btn-refresh-activation" class="btn btn--secondary btn--sm" type="button">Refresh Scope Mapping</button>
-          <span id="activation-scope-label" class="meta-line">scope: pipeworks_web</span>
+          <span id="activation-scope-label" class="meta-line">scope: none selected</span>
         </div>
         <div class="list-shell list-shell--compact list-shell--activation">
           <ul id="activation-list" class="report-list"></ul>

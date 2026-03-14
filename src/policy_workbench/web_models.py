@@ -112,6 +112,7 @@ class RuntimeLoginResponse(BaseModel):
     success: bool
     session_id: str | None = None
     role: str | None = None
+    available_worlds: list[dict[str, Any]] = Field(default_factory=list)
     detail: str
 
 

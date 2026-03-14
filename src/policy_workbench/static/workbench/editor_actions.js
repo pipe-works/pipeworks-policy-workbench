@@ -37,7 +37,7 @@ export async function saveCurrentFile() {
   const activateAfterSave = Boolean(dom.activationEnable?.checked);
   const activationScope = readActivationScopeInputs();
   if (activateAfterSave && !activationScope.worldId) {
-    _setStatus("Cannot activate after save: world_id is required.");
+    _setStatus("Cannot activate after save: select a world first.");
     setActiveMainTab("activation");
     return;
   }

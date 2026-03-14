@@ -7,4 +7,6 @@ export const state = {
   runtimeAuth: null,
   runtimeSessionId: "",
   runtimeModeOptionsByKey: new Map(),
+  availableWorlds: [],
+  selectedWorldId: "",
 };

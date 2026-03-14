@@ -53,13 +53,13 @@ Notes:
 
 ## Canonical Authoring Flow
 
-1. In Canonical Policy Objects (DB), choose filters (`type`, `namespace`, `status`) as needed.
+1. In Canonical Policy Objects (DB), select `world` first, then choose filters (`type`, `namespace`, `status`) as needed.
 2. Click refresh/load inventory.
 3. Select one policy object.
 4. Confirm Current Object metadata (policy id/type/namespace/key/variant/status/version/hash).
 5. Edit policy object content in editor.
 6. Save policy.
-7. Optionally enable activation and provide scope values before save.
+7. Optionally enable activation and provide `client_profile` before save (world scope is taken from Canonical Policy Objects selection).
 8. Confirm save response metadata (policy id, variant, version/hash, validation id).
 
 Contract notes:
@@ -85,7 +85,7 @@ If save fails:
 
 1. Review returned validation detail from save response.
 2. Confirm selected policy type/namespace/key/variant is correct.
-3. Confirm activation scope values are intentional and non-empty after trimming (`world_id`, optional `client_profile`).
+3. Confirm selected world scope and optional `client_profile` are intentional.
 4. Re-check server URL/session and try again.
 
 ## Versioning

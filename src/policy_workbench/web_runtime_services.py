@@ -173,6 +173,7 @@ def build_runtime_login_payload(
 
     session_id = payload.get("session_id")
     role = payload.get("role")
+    available_worlds = extract_available_worlds_from_login_payload(payload)
     if not isinstance(session_id, str) or not session_id.strip():
         raise ValueError("Mud login response did not include session_id.")
     if not isinstance(role, str) or not role.strip():
@@ -186,6 +187,7 @@ def build_runtime_login_payload(
             success=False,
             session_id=session_id.strip(),
             role=normalized_role,
+            available_worlds=available_worlds,
             detail="Authenticated, but role is not admin/superuser for policy APIs.",
         )
 
@@ -193,6 +195,7 @@ def build_runtime_login_payload(
         success=True,
         session_id=session_id.strip(),
         role=normalized_role,
+        available_worlds=available_worlds,
         detail="Authenticated as admin/superuser.",
     )
 
@@ -372,6 +375,36 @@ def extract_namespaces_from_inventory_payload(payload: dict[str, object]) -> lis
         if namespace:
             namespaces.append(namespace)
     return dedupe_preserve_order(namespaces)
+
+
+def extract_available_worlds_from_login_payload(
+    payload: dict[str, object],
+) -> list[dict[str, object]]:
+    """Extract world catalog rows from mud-server login payloads.
+
+    The canonical ``/login`` response includes ``available_worlds``. This
+    helper normalizes world IDs and preserves additional server-provided
+    metadata fields for frontend selectors.
+    """
+    raw_worlds = payload.get("available_worlds")
+    if not isinstance(raw_worlds, list):
+        return []
+
+    worlds: list[dict[str, object]] = []
+    for world in raw_worlds:
+        if not isinstance(world, dict):
+            continue
+        world_id = str(world.get("id") or "").strip()
+        if not world_id:
+            continue
+
+        normalized_world = dict(world)
+        normalized_world["id"] = world_id
+        name = str(world.get("name") or "").strip()
+        if name:
+            normalized_world["name"] = name
+        worlds.append(normalized_world)
+    return worlds
 
 
 def dedupe_preserve_order(values: list[str]) -> list[str]:

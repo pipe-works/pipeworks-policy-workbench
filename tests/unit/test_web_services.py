@@ -201,6 +201,7 @@ def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> 
             "session_id": "session-admin-1",
             "role": "admin",
             "success": True,
+            "available_worlds": [{"id": "pipeworks_web", "name": "Pipeworks Web"}],
         },
     )
     success_payload = web_services.build_runtime_login_payload(
@@ -213,6 +214,7 @@ def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> 
     assert success_payload.success is True
     assert success_payload.session_id == "session-admin-1"
     assert success_payload.role == "admin"
+    assert success_payload.available_worlds == [{"id": "pipeworks_web", "name": "Pipeworks Web"}]
 
     monkeypatch.setattr(
         web_services,
@@ -221,6 +223,7 @@ def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> 
             "session_id": "session-player-1",
             "role": "player",
             "success": True,
+            "available_worlds": [{"id": "mud_alpha", "name": "Mud Alpha"}],
         },
     )
     forbidden_payload = web_services.build_runtime_login_payload(
@@ -233,6 +236,7 @@ def test_build_runtime_login_payload_success_and_forbidden_role(monkeypatch) -> 
     assert forbidden_payload.success is False
     assert forbidden_payload.session_id == "session-player-1"
     assert forbidden_payload.role == "player"
+    assert forbidden_payload.available_worlds == [{"id": "mud_alpha", "name": "Mud Alpha"}]
     assert "not admin/superuser" in forbidden_payload.detail
 
 
