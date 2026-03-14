@@ -558,6 +558,34 @@ def test_api_first_activation_and_publish_proxy_endpoints(tmp_path: Path, monkey
     assert publish_payload["artifact"]["artifact_hash"] == "def"
 
 
+def test_api_first_activation_endpoint_rejects_whitespace_scope(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Activation endpoint should map blank-after-trim scopes to HTTP 400."""
+
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+
+    def _fake_activation_builder(**kwargs):
+        if not str(kwargs["scope"]).strip():
+            raise ValueError("scope is required.")
+        raise AssertionError("Expected whitespace scope branch")  # pragma: no cover
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_activation_scope_payload",
+        _fake_activation_builder,
+    )
+
+    response = client.get(
+        "/api/policy-activations-live",
+        params={"scope": "   ", "effective": "true", "session_id": "s1"},
+    )
+    assert response.status_code == 400
+    assert "scope is required." in response.json()["detail"]
+
+
 def test_api_first_proxy_endpoints_map_service_errors_to_http_400(
     tmp_path: Path,
     monkeypatch,

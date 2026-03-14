@@ -59,6 +59,17 @@ API-only authoring behavior:
 - legacy request query overrides (`root`, `map_path`) are rejected (`400`)
 - `/api/validate` is explicitly local mirror diagnostics and returns canonical authority labels
 
+Migration guidance:
+- replace legacy tree/file endpoint usage with canonical API object workflows:
+  - `GET /api/tree` -> `GET /api/policies`
+  - `GET /api/file` -> `GET /api/policies/{policy_id}`
+  - `PUT /api/file` -> `POST /api/policy-save`
+- treat `/api/validate` as local mirror diagnostics only; canonical correctness remains mud-server API validation/save/activation behavior
+
+Developer hardening checks:
+- run focused transport/proxy/source diagnostics coverage for refactored modules:
+  - `pyenv exec pytest -q --cov=policy_workbench.mud_api_client --cov=policy_workbench.web_policy_proxy_services --cov=policy_workbench.web_source_services --cov=policy_workbench.web_diagnostics_services --cov-report=term-missing`
+
 ## Current Layout
 
 - `src/policy_workbench/` - Python package and CLI entrypoint

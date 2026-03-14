@@ -52,3 +52,38 @@ def test_package_data_patterns_cover_all_existing_workbench_modules() -> None:
             missing.append(relative_path)
 
     assert not missing, f"Unmatched nested JS modules in package-data patterns: {missing}"
+
+
+def test_package_data_patterns_cover_runtime_templates_and_static_assets() -> None:
+    """Package-data patterns should include all shipped runtime template/static assets."""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    package_root = repo_root / "src" / "policy_workbench"
+    pyproject_path = repo_root / "pyproject.toml"
+    data = tomllib.loads(pyproject_path.read_text(encoding="utf-8"))
+
+    package_data = (
+        data.get("tool", {})
+        .get("setuptools", {})
+        .get("package-data", {})
+        .get("policy_workbench", [])
+    )
+    patterns = [str(item) for item in package_data]
+
+    required_runtime_files = [
+        "templates/index.html",
+        "static/workbench.css",
+        "static/pipe-works-base.css",
+        "static/workbench.js",
+    ]
+    required_runtime_files.extend(
+        path.relative_to(package_root).as_posix()
+        for path in sorted((package_root / "static" / "workbench").glob("*.js"))
+    )
+
+    missing: list[str] = []
+    for relative_path in required_runtime_files:
+        if not any(Path(relative_path).match(pattern) for pattern in patterns):
+            missing.append(relative_path)
+
+    assert not missing, f"Runtime assets not covered by package-data patterns: {missing}"
