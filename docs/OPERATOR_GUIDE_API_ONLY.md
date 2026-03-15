@@ -56,7 +56,7 @@ Notes:
 1. In Canonical Policy Objects (DB), select `world` first, then choose filters (`type`, `namespace`, `status`) as needed.
 2. Click refresh/load inventory.
 3. Select one policy object.
-4. Confirm Current Object metadata (policy id/type/namespace/key/variant/status/version/hash).
+4. Confirm Current Object metadata (`policy_id`, `policy_type`, `namespace`, `policy_key`, `variant`, `schema_version`, `policy_version`, `status`, `content_hash`).
 5. Edit policy object content in editor.
 6. Save policy.
 7. Optionally enable activation and provide `client_profile` before save (world scope is taken from Canonical Policy Objects selection).

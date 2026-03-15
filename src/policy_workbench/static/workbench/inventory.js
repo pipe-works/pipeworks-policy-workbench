@@ -374,6 +374,7 @@ function clearCurrentObjectPanel() {
   _setCurrentObjectField(dom.currentPolicyNamespace, "");
   _setCurrentObjectField(dom.currentPolicyKey, "");
   _setCurrentObjectField(dom.currentPolicyVariant, "");
+  _setCurrentObjectField(dom.currentPolicySchemaVersion, "");
   _setCurrentObjectField(dom.currentPolicyStatus, "");
   _setCurrentObjectField(dom.currentPolicyVersion, "");
   _setCurrentObjectField(dom.currentPolicyContentHash, "");
@@ -392,8 +393,9 @@ function updateCurrentObjectPanel(policy) {
   _setCurrentObjectField(dom.currentPolicyNamespace, policy.namespace);
   _setCurrentObjectField(dom.currentPolicyKey, policy.policy_key);
   _setCurrentObjectField(dom.currentPolicyVariant, policy.variant);
+  _setCurrentObjectField(dom.currentPolicySchemaVersion, policy.schema_version);
   _setCurrentObjectField(dom.currentPolicyStatus, policy.status);
-  _setCurrentObjectField(dom.currentPolicyVersion, String(policy.policy_version || ""));
+  _setCurrentObjectField(dom.currentPolicyVersion, String(policy.policy_version ?? ""));
   _setCurrentObjectField(dom.currentPolicyContentHash, policy.content_hash);
   _setCurrentObjectField(dom.currentPolicyUpdatedAt, policy.updated_at);
   _setCurrentObjectField(dom.currentPolicyUpdatedBy, policy.updated_by);
