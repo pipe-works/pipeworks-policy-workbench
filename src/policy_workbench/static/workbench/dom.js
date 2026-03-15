@@ -33,6 +33,7 @@ export const dom = {
   currentPolicyActivation: document.getElementById("current-policy-activation"),
   fileEditor: document.getElementById("file-editor"),
   editorLintStatus: document.getElementById("editor-lint-status"),
+  editorValidationDetails: document.getElementById("editor-validation-details"),
   inventoryWorld: document.getElementById("inventory-world"),
   inventoryPolicyType: document.getElementById("inventory-policy-type"),
   inventoryNamespace: document.getElementById("inventory-namespace"),

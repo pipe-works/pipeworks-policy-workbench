@@ -52,6 +52,53 @@ function setEditorLintStatus({ tone, message }) {
   dom.editorLintStatus.textContent = message;
 }
 
+function setEditorValidationDetails({ tone, message }) {
+  if (!dom.editorValidationDetails) {
+    return;
+  }
+  dom.editorValidationDetails.classList.remove(
+    "editor-validation-details--muted",
+    "editor-validation-details--ok",
+    "editor-validation-details--warn",
+    "editor-validation-details--err"
+  );
+  dom.editorValidationDetails.classList.add(`editor-validation-details--${tone}`);
+  dom.editorValidationDetails.textContent = message;
+}
+
+function clearEditorValidationDetails() {
+  setEditorValidationDetails({
+    tone: "muted",
+    message: "Run Validate Policy to see server-side validation details.",
+  });
+}
+
+function splitValidationDetails(rawDetail) {
+  const detail = String(rawDetail || "").trim();
+  if (!detail) {
+    return [];
+  }
+  const lines = detail
+    .split(/;\s+|\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (!lines.length) {
+    return [];
+  }
+  return lines;
+}
+
+function formatValidationFailureMessage(rawDetail) {
+  const details = splitValidationDetails(rawDetail);
+  if (!details.length) {
+    return "Validation failed, but no detailed error payload was returned.";
+  }
+  if (details.length === 1) {
+    return `Validation issue:\n- ${details[0]}`;
+  }
+  return `Validation issues (${details.length}):\n- ${details.join("\n- ")}`;
+}
+
 function normalizeJsonSyntaxError(error) {
   const message = String(error?.message || "").trim();
   if (!message) {
@@ -153,6 +200,10 @@ export function refreshEditorLintStatus() {
   const lintState = evaluateEditorLintState();
   setEditorLintStatus(lintState);
   return lintState;
+}
+
+export function resetEditorValidationDetails() {
+  clearEditorValidationDetails();
 }
 
 function normalizeVariantScopeSegment(value) {
@@ -288,6 +339,7 @@ export function openEditorForCurrentSelection() {
   state.editorIsEditing = true;
   setEditorReadOnlyMode(false);
   refreshEditorLintStatus();
+  clearEditorValidationDetails();
   dom.fileEditor?.focus();
   _setStatus(`Edit mode enabled for ${buildPolicySelectorLabel(state.selectedArtifact)}.`);
 }
@@ -312,6 +364,7 @@ export function closeEditorForCurrentSelection() {
   state.editorIsEditing = false;
   setEditorReadOnlyMode(true);
   refreshEditorLintStatus();
+  clearEditorValidationDetails();
   _setStatus(`Editor closed for ${buildPolicySelectorLabel(state.selectedArtifact)}.`);
 }
 
@@ -320,6 +373,10 @@ export function handleEditorInputChange() {
     return;
   }
   refreshEditorLintStatus();
+  setEditorValidationDetails({
+    tone: "muted",
+    message: "Draft changed. Run Validate Policy again to refresh server-side feedback.",
+  });
   setServerFeatureAvailability();
 }
 
@@ -351,13 +408,25 @@ export async function validateCurrentFile() {
       method: "POST",
       body: JSON.stringify(validatePayload),
     });
+    setEditorValidationDetails({
+      tone: "ok",
+      message:
+        `Validation passed for ${validateResult.policy_id}:${validateResult.variant}. `
+        + `run_id=${validateResult.validation_run_id} next_policy_version=${validateResult.policy_version}`,
+    });
     _setStatus(
       `Validation passed for ${validateResult.policy_id}:${validateResult.variant} `
       + `(run ${validateResult.validation_run_id}, next v${validateResult.policy_version}).`
     );
   } catch (error) {
+    const errorDetail = String(error?.message || "").trim();
+    setEditorValidationDetails({
+      tone: "err",
+      message: formatValidationFailureMessage(errorDetail),
+    });
     const lintPrefix = lintState.tone === "err" ? `${lintState.message} ` : "";
-    _setStatus(`Validation failed: ${lintPrefix}${error.message}`);
+    const firstIssue = splitValidationDetails(errorDetail)[0] || errorDetail || "Validation failed.";
+    _setStatus(`Validation failed: ${lintPrefix}${firstIssue}`);
   }
 }
 
@@ -464,5 +533,6 @@ export async function reloadCurrentFile() {
     return;
   }
   refreshEditorLintStatus();
+  clearEditorValidationDetails();
   _setStatus("Select a policy object before reloading.");
 }

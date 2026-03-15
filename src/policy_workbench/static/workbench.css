@@ -499,6 +499,35 @@
   color: var(--col-err);
 }
 
+.editor-validation-details {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  border: 1px solid var(--col-border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  background: color-mix(in srgb, var(--col-surface-2) 55%, var(--col-bg));
+}
+
+.editor-validation-details--muted {
+  color: var(--col-text-muted);
+}
+
+.editor-validation-details--ok {
+  color: var(--col-ok);
+  border-color: color-mix(in srgb, var(--col-ok) 40%, var(--col-border));
+}
+
+.editor-validation-details--warn {
+  color: var(--col-warn);
+  border-color: color-mix(in srgb, var(--col-warn) 40%, var(--col-border));
+}
+
+.editor-validation-details--err {
+  color: var(--col-err);
+  border-color: color-mix(in srgb, var(--col-err) 40%, var(--col-border));
+}
+
 .activation-save-summary {
   display: flex;
   flex-direction: column;
