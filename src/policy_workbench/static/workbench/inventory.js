@@ -16,6 +16,7 @@ const AUTHORABLE_POLICY_TYPES = new Set([
   "species_block",
   "prompt",
   "image_block",
+  "clothing_block",
   "tone_profile",
   "descriptor_layer",
   "registry",
@@ -109,10 +110,7 @@ function choosePreferredWorldId(worldRows, preferredWorldId, previousWorldId) {
 function buildWorldLabel(worldRow) {
   const worldId = String(worldRow.id || "").trim();
   const worldName = String(worldRow.name || "").trim();
-  let label = worldId;
-  if (worldName && worldName !== worldId) {
-    label = `${worldName} (${worldId})`;
-  }
+  const label = worldName || worldId;
 
   const suffixes = [];
   if (!worldRow.is_active) {
@@ -436,8 +434,13 @@ function buildRawEditorContentFromPolicy(policy) {
   if (policy.policy_type === "prompt") {
     return String(content.text || "");
   }
-  if (policy.policy_type === "image_block" || policy.policy_type === "clothing_block") {
+  if (policy.policy_type === "image_block") {
     return String(content.text || "");
+  }
+  if (policy.policy_type === "clothing_block") {
+    // Render canonical DB/API payload so operators can inspect/edit the exact
+    // object shape that is persisted server-side.
+    return JSON.stringify(content, null, 2);
   }
   return JSON.stringify(content, null, 2);
 }
@@ -453,7 +456,7 @@ export function renderPolicyInventory(items) {
 
   dom.inventoryList.innerHTML = "";
   if (!items.length) {
-    const item = document.createElement("li");
+    const item = document.createElement("div");
     item.className = "report-item report-item--info";
     if (!isServerAuthorized()) {
       item.textContent = "Server mode connected, but admin/superuser session is required.";
@@ -465,40 +468,66 @@ export function renderPolicyInventory(items) {
   }
 
   const selectedKey = selectedPolicyKey();
-  for (const itemRow of items) {
-    const item = document.createElement("li");
-    item.className = "inventory-item";
+  const table = document.createElement("table");
+  table.className = "inventory-table";
+  table.setAttribute("aria-label", "Policy inventory table");
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "inventory-item__button";
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const label of ["Policy", "Status", "Version", "Updated"]) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+
+  const loadPolicyFromInventoryRow = (itemRow) => {
+    void loadPolicyObject(itemRow.policy_id, itemRow.variant);
+  };
+
+  const createCell = (text, label, className = "") => {
+    const cell = document.createElement("td");
+    cell.textContent = String(text ?? "").trim() || "--";
+    cell.setAttribute("data-label", label);
+    if (className) {
+      cell.className = className;
+    }
+    return cell;
+  };
+
+  for (const itemRow of items) {
+    const row = document.createElement("tr");
+    row.className = "inventory-table__row";
     const rowKey = `${itemRow.policy_id}:${itemRow.variant}`;
     if (rowKey === selectedKey) {
-      button.classList.add("is-active");
+      row.classList.add("is-active");
     }
-    button.title = buildPolicySelectorLabel(itemRow);
-    button.addEventListener("click", () => {
-      void loadPolicyObject(itemRow.policy_id, itemRow.variant);
+    row.tabIndex = 0;
+    row.title = buildPolicySelectorLabel(itemRow);
+    row.addEventListener("click", () => loadPolicyFromInventoryRow(itemRow));
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      loadPolicyFromInventoryRow(itemRow);
     });
 
-    const top = document.createElement("div");
-    top.className = "inventory-item__top";
-    const selector = document.createElement("span");
-    selector.className = "inventory-item__selector";
-    selector.textContent = buildPolicySelectorLabel(itemRow);
-    const status = document.createElement("span");
-    status.className = "inventory-item__status";
-    status.textContent = itemRow.status;
-    top.append(selector, status);
-
-    const meta = document.createElement("div");
-    meta.className = "inventory-item__meta";
-    meta.textContent = `v${itemRow.policy_version} · ${itemRow.updated_at}`;
-
-    button.append(top, meta);
-    item.append(button);
-    dom.inventoryList.appendChild(item);
+    row.append(
+      createCell(buildPolicySelectorLabel(itemRow), "Policy", "inventory-table__policy"),
+      createCell(itemRow.status, "Status", "inventory-table__status"),
+      createCell(`v${itemRow.policy_version ?? ""}`, "Version", "inventory-table__version"),
+      createCell(itemRow.updated_at, "Updated", "inventory-table__updated"),
+    );
+    tbody.appendChild(row);
   }
+
+  table.appendChild(tbody);
+  dom.inventoryList.appendChild(table);
 }
 
 async function refreshPolicyStatusCounts() {

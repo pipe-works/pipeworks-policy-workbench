@@ -83,3 +83,44 @@ def test_runtime_mode_switch_does_not_implicitly_override_server_url() -> None:
     runtime_session = _read(_WORKBENCH_RUNTIME_SESSION)
     assert "selectedRuntimeModeServerUrl" not in runtime_session
     assert "if (explicitServerUrl !== null)" in runtime_session
+
+
+def test_world_dropdown_uses_canonical_api_name_without_id_suffix() -> None:
+    """World selector labels should not append transformed IDs when name is present."""
+
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    assert "${worldName} (${worldId})" not in inventory_source
+
+
+def test_inventory_renders_table_rows_for_policy_list() -> None:
+    """Inventory renderer should build table-based policy rows."""
+
+    template_source = _read(_TEMPLATE_PATH)
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    assert 'id="inventory-list"' in template_source
+    assert "inventory-table" in inventory_source
+    assert 'document.createElement("table")' in inventory_source
+
+
+def test_clothing_block_editor_view_renders_canonical_json_content() -> None:
+    """Clothing blocks should not use text-only projection in editor view."""
+
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    assert 'policy.policy_type === "image_block"' in inventory_source
+    assert (
+        'policy.policy_type === "image_block" || policy.policy_type === "clothing_block"'
+        not in (inventory_source)
+    )
+
+
+def test_clothing_block_is_in_authorable_policy_type_set() -> None:
+    """Clothing blocks should be editable through the policy workbench authoring flow."""
+
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    authorable_set_match = re.search(
+        r"const AUTHORABLE_POLICY_TYPES = new Set\(\[(.*?)\]\);",
+        inventory_source,
+        flags=re.S,
+    )
+    assert authorable_set_match is not None
+    assert '"clothing_block"' in authorable_set_match.group(1)

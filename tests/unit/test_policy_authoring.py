@@ -387,6 +387,71 @@ def test_save_policy_variant_from_raw_content_supports_image_block_text(monkeypa
     assert captured_payloads[1]["content"] == {"text": "front-facing neutral stance"}
 
 
+def test_build_policy_content_from_raw_accepts_clothing_block_object_payload() -> None:
+    """Clothing-block content builder should preserve structured object payloads."""
+    content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+        selector=PolicySelector(
+            policy_type="clothing_block",
+            namespace="image.blocks.clothing.activity",
+            policy_key="clerical",
+            variant="v1",
+        ),
+        raw_content='{"text":"Formal clerical attire.","slots":["torso","legs"]}',
+    )
+    assert content == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
+
+
+def test_save_policy_variant_from_raw_content_supports_clothing_block_object(monkeypatch) -> None:
+    """Generic save helper should preserve clothing-block object payloads."""
+    selector = PolicySelector(
+        policy_type="clothing_block",
+        namespace="image.blocks.clothing.activity",
+        policy_key="clerical",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 19}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 7, "content_hash": "hash-clothing-block"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 7)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"Formal clerical attire.","slots":["torso","legs"]}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "clothing_block:image.blocks.clothing.activity:clerical"
+    assert result.policy_version == 7
+    assert result.content_hash == "hash-clothing-block"
+    assert result.validation_run_id == 19
+    assert captured_payloads[0]["content"] == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
+
+
 def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() -> None:
     """Generic save helper should reject policy types outside implemented mappings."""
     with pytest.raises(ValueError, match="supports only policy_type values"):
