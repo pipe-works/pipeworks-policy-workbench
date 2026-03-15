@@ -11,10 +11,6 @@ Primary goals:
 - reduce human error when editing policy content
 - keep authoring aligned with mud-server API contracts
 
-Current operator workflow is documented in:
-
-- [`docs/OPERATOR_GUIDE_API_ONLY.md`](docs/OPERATOR_GUIDE_API_ONLY.md)
-
 ## Environment
 
 This repo uses `pyenv`.
@@ -22,7 +18,14 @@ This repo uses `pyenv`.
 ```bash
 pyenv local ppw
 pyenv exec pip install -e ".[dev]"
+cp .example.env .env
 ```
+
+Runtime defaults can be set in `.env`:
+- `PW_POLICY_DEV_MUD_API_BASE_URL` and `PW_POLICY_PROD_MUD_API_BASE_URL` set
+  default Policy Source Mode URLs (still editable in the UI).
+- `PW_POLICY_DEFAULT_PORT` sets a default `pw-policy serve` preferred port in
+  `8000-8099`. Leave it empty to keep first-available auto-selection.
 
 ## Commands
 
@@ -38,6 +41,7 @@ pyenv exec pw-policy serve
 `pw-policy serve` behavior:
 - binds to the first unused port in `8000-8099`
 - supports `--port` as a preferred in-range port and falls back within range if occupied
+- supports `PW_POLICY_DEFAULT_PORT` as default preferred port when `--port` is omitted
 - prefixes server log lines with `pol-work-bench` for easier pane identification
 
 API-only authoring behavior:
@@ -60,7 +64,6 @@ Developer hardening checks:
 
 - `src/policy_workbench/` - Python package and CLI entrypoint
 - `src/policy_workbench/commands/` - command handlers (`serve` and CLI maintenance tools)
-- `docs/OPERATOR_GUIDE_API_ONLY.md` - current canonical operator guide
 - `tests/` - unit/integration tests
 - `_working/` - live design notes and handover docs
 - `_working/shared` - symlink to shared working directory used across repos

@@ -10,6 +10,7 @@ stays thin and testable. It provides three responsibilities:
 
 from __future__ import annotations
 
+import os
 import socket
 from collections.abc import Callable
 from typing import Any, cast
@@ -18,6 +19,7 @@ PORT_RANGE_START = 8000
 PORT_RANGE_END = 8099
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_LOG_PREFIX = "pol-work-bench"
+DEFAULT_PORT_ENV = "PW_POLICY_DEFAULT_PORT"
 
 
 def _port_candidates(requested_port: int | None) -> list[int]:
@@ -75,6 +77,38 @@ def choose_server_port(host: str, requested_port: int | None = None) -> int:
     raise RuntimeError(
         f"No available ports found in supported range {PORT_RANGE_START}-{PORT_RANGE_END}."
     )
+
+
+def resolve_default_port_from_environment() -> int | None:
+    """Return optional default serve port from environment.
+
+    ``PW_POLICY_DEFAULT_PORT`` semantics:
+    - unset/blank: no preferred port (use first available in range)
+    - integer in 8000-8099: preferred default port
+    """
+
+    raw_port = os.getenv(DEFAULT_PORT_ENV)
+    if raw_port is None:
+        return None
+
+    normalized = raw_port.strip()
+    if not normalized:
+        return None
+
+    try:
+        port = int(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            f"{DEFAULT_PORT_ENV} must be an integer in {PORT_RANGE_START}-{PORT_RANGE_END}, "
+            f"got {raw_port!r}."
+        ) from exc
+
+    if port < PORT_RANGE_START or port > PORT_RANGE_END:
+        raise ValueError(
+            f"{DEFAULT_PORT_ENV} must be in {PORT_RANGE_START}-{PORT_RANGE_END}, got {port}."
+        )
+
+    return port
 
 
 def build_uvicorn_log_config(prefix: str = DEFAULT_LOG_PREFIX) -> dict[str, Any]:
@@ -172,7 +206,10 @@ def run_server(
             "uvicorn is required to run the server. Install with `pyenv exec pip install uvicorn`."
         ) from exc
 
-    selected_port = choose_server_port(host=host, requested_port=requested_port)
+    resolved_requested_port = (
+        requested_port if requested_port is not None else resolve_default_port_from_environment()
+    )
+    selected_port = choose_server_port(host=host, requested_port=resolved_requested_port)
     uvicorn.run(
         create_app(),
         host=host,

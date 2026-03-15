@@ -37,3 +37,5 @@ _working/*.png
 _working/*.jpg
 _working/*.jpeg
 _working/*.webp
+_working/OPERATOR_GUIDE_API_ONLY.md
+_working/SYNC_CONTRACT_V1.md
