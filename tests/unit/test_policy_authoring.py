@@ -193,6 +193,54 @@ def test_save_policy_variant_from_raw_content_supports_prompt_text(monkeypatch) 
     assert captured_payloads[1]["content"] == {"text": "Stay in-character and terse."}
 
 
+def test_save_policy_variant_from_raw_content_supports_prompt_object_payload(monkeypatch) -> None:
+    """Prompt save should preserve canonical object payload when JSON/YAML object is provided."""
+    selector = PolicySelector(
+        policy_type="prompt",
+        namespace="translation.prompts.ic",
+        policy_key="default",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 22}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 8, "content_hash": "hash-prompt-object"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 8)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"  Stay in-character and terse.  ","tone":"terse"}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "prompt:translation.prompts.ic:default"
+    assert result.policy_version == 8
+    assert result.content_hash == "hash-prompt-object"
+    assert result.validation_run_id == 22
+    assert captured_payloads[0]["content"] == {
+        "text": "Stay in-character and terse.",
+        "tone": "terse",
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "Stay in-character and terse.",
+        "tone": "terse",
+    }
+
+
 def test_save_policy_variant_from_raw_content_uses_resolved_next_version_for_requests(
     monkeypatch,
 ) -> None:
@@ -282,6 +330,72 @@ def test_save_policy_variant_from_raw_content_trims_activation_scope_fields(monk
         "policy_id": "species_block:image.blocks.species:goblin",
         "variant": "v1",
         "activated_by": "tester",
+    }
+
+
+def test_build_policy_content_from_raw_accepts_species_block_object_payload() -> None:
+    """Species-block content builder should accept canonical structured object payloads."""
+    content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+        selector=PolicySelector(
+            policy_type="species_block",
+            namespace="image.blocks.species",
+            policy_key="goblin",
+            variant="v1",
+        ),
+        raw_content='{"text":"  Canonical goblin text.  ","slots":["torso"]}',
+    )
+    assert content == {
+        "text": "Canonical goblin text.",
+        "slots": ["torso"],
+    }
+
+
+def test_save_policy_variant_from_raw_content_supports_species_block_object(monkeypatch) -> None:
+    """Species-block save should preserve structured object payload shape."""
+    selector = PolicySelector(
+        policy_type="species_block",
+        namespace="image.blocks.species",
+        policy_key="goblin",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 13}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 6, "content_hash": "hash-species-block"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 6)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"  Canonical goblin text.  ","slots":["torso"]}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+
+    assert result.policy_id == "species_block:image.blocks.species:goblin"
+    assert result.policy_version == 6
+    assert result.content_hash == "hash-species-block"
+    assert result.validation_run_id == 13
+    assert captured_payloads[0]["content"] == {
+        "text": "Canonical goblin text.",
+        "slots": ["torso"],
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "Canonical goblin text.",
+        "slots": ["torso"],
     }
 
 
@@ -385,6 +499,119 @@ def test_save_policy_variant_from_raw_content_supports_image_block_text(monkeypa
     assert result.validation_run_id == 12
     assert captured_payloads[0]["content"] == {"text": "front-facing neutral stance"}
     assert captured_payloads[1]["content"] == {"text": "front-facing neutral stance"}
+
+
+def test_save_policy_variant_from_raw_content_supports_image_block_object(monkeypatch) -> None:
+    """Image-block save should preserve canonical object payload when provided."""
+    selector = PolicySelector(
+        policy_type="image_block",
+        namespace="image.blocks.pose",
+        policy_key="standing_front",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 15}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 6, "content_hash": "hash-image-block-object"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 6)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"  front-facing neutral stance  ","camera":"portrait"}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "image_block:image.blocks.pose:standing_front"
+    assert result.policy_version == 6
+    assert result.content_hash == "hash-image-block-object"
+    assert result.validation_run_id == 15
+    assert captured_payloads[0]["content"] == {
+        "text": "front-facing neutral stance",
+        "camera": "portrait",
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "front-facing neutral stance",
+        "camera": "portrait",
+    }
+
+
+def test_build_policy_content_from_raw_accepts_clothing_block_object_payload() -> None:
+    """Clothing-block content builder should preserve structured object payloads."""
+    content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+        selector=PolicySelector(
+            policy_type="clothing_block",
+            namespace="image.blocks.clothing.activity",
+            policy_key="clerical",
+            variant="v1",
+        ),
+        raw_content='{"text":"Formal clerical attire.","slots":["torso","legs"]}',
+    )
+    assert content == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
+
+
+def test_save_policy_variant_from_raw_content_supports_clothing_block_object(monkeypatch) -> None:
+    """Generic save helper should preserve clothing-block object payloads."""
+    selector = PolicySelector(
+        policy_type="clothing_block",
+        namespace="image.blocks.clothing.activity",
+        policy_key="clerical",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 19}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 7, "content_hash": "hash-clothing-block"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 7)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"Formal clerical attire.","slots":["torso","legs"]}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "clothing_block:image.blocks.clothing.activity:clerical"
+    assert result.policy_version == 7
+    assert result.content_hash == "hash-clothing-block"
+    assert result.validation_run_id == 19
+    assert captured_payloads[0]["content"] == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "Formal clerical attire.",
+        "slots": ["torso", "legs"],
+    }
 
 
 def test_save_policy_variant_from_raw_content_rejects_unsupported_policy_type() -> None:

@@ -214,3 +214,53 @@ def test_build_policy_activation_scope_payload_rejects_blank_scope() -> None:
                 AssertionError("fetch_mud_api_json should not be called for blank scope")
             ),
         )
+
+
+def test_build_policy_activation_set_payload_posts_canonical_activation_body() -> None:
+    """Activation-set helper should normalize and post one canonical mutation payload."""
+    captured: dict[str, object] = {}
+
+    def _fake_fetch(*, runtime, method, path, query_params, json_payload=None):  # noqa: ANN001
+        captured["runtime"] = runtime
+        captured["method"] = method
+        captured["path"] = path
+        captured["query_params"] = query_params
+        captured["json_payload"] = json_payload
+        return {
+            "world_id": "pipeworks_web",
+            "client_profile": "mobile",
+            "policy_id": "descriptor_layer:image.descriptors:id_card",
+            "variant": "v1-w-pipeworks-web",
+            "activated_at": "2026-03-15T12:00:00Z",
+            "activated_by": "tester",
+            "rollback_of_activation_id": None,
+            "audit_event_id": 201,
+        }
+
+    payload = web_policy_proxy_services.build_policy_activation_set_payload(
+        world_id=" pipeworks_web ",
+        client_profile=" mobile ",
+        policy_id=" descriptor_layer:image.descriptors:id_card ",
+        variant=" v1-w-pipeworks-web ",
+        activated_by=" tester ",
+        session_id_override="session-1",
+        base_url_override=None,
+        resolve_runtime_config=lambda **_kwargs: MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id="session-1",
+        ),
+        fetch_mud_api_json=_fake_fetch,
+    )
+    assert payload.world_id == "pipeworks_web"
+    assert payload.variant == "v1-w-pipeworks-web"
+    assert payload.audit_event_id == 201
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/api/policy-activations"
+    assert captured["query_params"] == {}
+    assert captured["json_payload"] == {
+        "world_id": "pipeworks_web",
+        "client_profile": "mobile",
+        "policy_id": "descriptor_layer:image.descriptors:id_card",
+        "variant": "v1-w-pipeworks-web",
+        "activated_by": "tester",
+    }

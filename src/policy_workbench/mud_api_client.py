@@ -101,6 +101,7 @@ def fetch_mud_api_json(
     method: str,
     path: str,
     query_params: dict[str, str],
+    json_payload: dict[str, object] | None = None,
     opener=urlopen,
 ) -> dict[str, object]:
     """Issue one mud-server API request with session injection."""
@@ -115,7 +116,7 @@ def fetch_mud_api_json(
         method=method,
         url=url,
         timeout_seconds=runtime.timeout_seconds,
-        json_payload=None,
+        json_payload=json_payload,
         allow_not_found=False,
         error_prefix="Mud API request failed",
         non_object_error_message=f"Mud API response for {method} {url} must be a JSON object.",

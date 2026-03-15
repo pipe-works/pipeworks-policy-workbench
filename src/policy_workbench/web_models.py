@@ -191,6 +191,30 @@ class PolicyActivationScopeResponse(BaseModel):
     items: list[dict[str, Any]]
 
 
+class PolicyActivationSetRequest(BaseModel):
+    """Request payload for one activation pointer mutation."""
+
+    world_id: str = Field(min_length=1)
+    client_profile: str | None = None
+    policy_id: str = Field(min_length=1)
+    variant: str = Field(min_length=1)
+    activated_by: str | None = None
+    session_id: str | None = None
+
+
+class PolicyActivationSetResponse(BaseModel):
+    """Response payload for one activation pointer mutation."""
+
+    world_id: str
+    client_profile: str | None
+    policy_id: str
+    variant: str
+    activated_at: str
+    activated_by: str
+    rollback_of_activation_id: int | None
+    audit_event_id: int | None = None
+
+
 class PolicyPublishRunProxyResponse(BaseModel):
     """Publish-run payload returned from mud-server proxy route."""
 

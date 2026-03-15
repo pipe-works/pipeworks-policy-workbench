@@ -1236,3 +1236,58 @@ def test_build_policy_detail_activation_and_publish_payloads(monkeypatch) -> Non
         "effective": "false",
     }
     assert captured_calls[2]["path"] == "/api/policy-publish/9"
+
+
+def test_build_policy_activation_set_payload_posts_canonical_activation_body(monkeypatch) -> None:
+    """Activation-set builder should post normalized payload to mud-server route."""
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        web_services,
+        "_resolve_mud_api_runtime_config",
+        lambda session_id_override=None, base_url_override=None: web_services._MudApiRuntimeConfig(
+            base_url="http://mud.local:8000",
+            session_id=(session_id_override or "s1"),
+        ),
+    )
+
+    def _fake_fetch(*, runtime, method, path, query_params, json_payload=None):  # noqa: ANN001
+        captured["runtime"] = runtime
+        captured["method"] = method
+        captured["path"] = path
+        captured["query_params"] = query_params
+        captured["json_payload"] = json_payload
+        return {
+            "world_id": "pipeworks_web",
+            "client_profile": None,
+            "policy_id": "descriptor_layer:image.descriptors:id_card",
+            "variant": "v1-w-pipeworks-web",
+            "activated_at": "2026-03-15T12:00:00Z",
+            "activated_by": "tester",
+            "rollback_of_activation_id": None,
+            "audit_event_id": 301,
+        }
+
+    monkeypatch.setattr(web_services, "_fetch_mud_api_json", _fake_fetch)
+
+    payload = web_services.build_policy_activation_set_payload(
+        world_id=" pipeworks_web ",
+        client_profile="",
+        policy_id=" descriptor_layer:image.descriptors:id_card ",
+        variant=" v1-w-pipeworks-web ",
+        activated_by=" tester ",
+        session_id_override="session-1",
+    )
+
+    assert payload.world_id == "pipeworks_web"
+    assert payload.audit_event_id == 301
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/api/policy-activations"
+    assert captured["query_params"] == {}
+    assert captured["json_payload"] == {
+        "world_id": "pipeworks_web",
+        "client_profile": None,
+        "policy_id": "descriptor_layer:image.descriptors:id_card",
+        "variant": "v1-w-pipeworks-web",
+        "activated_by": "tester",
+    }
