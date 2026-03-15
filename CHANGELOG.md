@@ -13,6 +13,14 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.22](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.21...pipeworks-policy-workbench-v0.1.22) (2026-03-15)
+
+
+### Features
+
+* **runtime:** load .env defaults and support env serve port ([29b08dd](https://github.com/pipe-works/pipeworks-policy-workbench/commit/29b08dd49ed087520310919e4911d6c806d69829))
+* **runtime:** load .env defaults and support env serve port ([1bbd90d](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1bbd90d9311c1f3aba956043bc550e247d1ddee0))
+
 ## [0.1.21](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.20...pipeworks-policy-workbench-v0.1.21) (2026-03-15)
 
 
