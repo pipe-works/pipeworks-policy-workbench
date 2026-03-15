@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from policy_workbench import cli
 
 
@@ -100,6 +102,32 @@ def test_main_serve_invokes_server(monkeypatch) -> None:
 
     assert exit_code == 0
     assert called == {"host": "127.0.0.1", "requested_port": 8010}
+
+
+def test_main_serve_loads_dotenv_before_run_server(monkeypatch, tmp_path) -> None:
+    """CLI should load local .env before delegating to run_server."""
+
+    (tmp_path / ".env").write_text("PW_POLICY_DEFAULT_PORT=8019\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_server(host: str, requested_port: int | None) -> None:
+        captured["host"] = host
+        captured["requested_port"] = requested_port
+        captured["env_port"] = os.getenv("PW_POLICY_DEFAULT_PORT")
+
+    monkeypatch.setattr("policy_workbench.cli.run_server", fake_run_server)
+    monkeypatch.delenv("PW_POLICY_DEFAULT_PORT", raising=False)
+
+    exit_code = cli.main(["serve"])
+
+    assert exit_code == 0
+    assert captured == {
+        "host": "0.0.0.0",
+        "requested_port": None,
+        "env_port": "8019",
+    }
 
 
 def test_main_doctor_delegates_to_command_module(monkeypatch) -> None:

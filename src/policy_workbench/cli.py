@@ -10,6 +10,7 @@ import argparse
 import sys
 
 from policy_workbench.commands import run_doctor, run_sync, run_validate
+from policy_workbench.env_loader import load_dotenv_if_present
 from policy_workbench.server import run_server
 
 
@@ -77,7 +78,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--port",
         type=int,
         default=None,
-        help="Preferred port in 8000-8099; auto-selects another free port in-range if occupied",
+        help=(
+            "Preferred port in 8000-8099; overrides PW_POLICY_DEFAULT_PORT. "
+            "Auto-selects an available in-range port when neither is set."
+        ),
     )
 
     return parser
@@ -90,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
         argv: Optional argument list for testability. When ``None``, argparse
             reads from ``sys.argv``.
     """
+
+    load_dotenv_if_present()
 
     parser = _build_parser()
     args = parser.parse_args(argv)
