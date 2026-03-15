@@ -13,6 +13,14 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.21](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.20...pipeworks-policy-workbench-v0.1.21) (2026-03-15)
+
+
+### Fixes
+
+* **editor:** mirror policy object db row fields ([1418407](https://github.com/pipe-works/pipeworks-policy-workbench/commit/141840743c67e7ad669bae387fa25ccb8e663aa1))
+* **editor:** mirror policy object db row fields ([8d529bc](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8d529bce1e8e1ffaec1072acc615584ac295289e))
+
 ## [0.1.20](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.19...pipeworks-policy-workbench-v0.1.20) (2026-03-14)
 
 
