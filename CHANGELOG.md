@@ -13,6 +13,33 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.23](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.22...pipeworks-policy-workbench-v0.1.23) (2026-03-15)
+
+
+### Features
+
+* **workbench:** add editor lint status and validate-only checks ([d04685c](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d04685c6b9c1037bca49036e3e6a4ca36aa0bae9))
+* **workbench:** add live editor linting and validate-only action ([f324357](https://github.com/pipe-works/pipeworks-policy-workbench/commit/f324357f27e6dff73c3fbc4140b1b7ef3db66fb6))
+* **workbench:** add world-scoped save and rollout controls ([01f1e4d](https://github.com/pipe-works/pipeworks-policy-workbench/commit/01f1e4d54422f314701682d9494a57dabe2aae63))
+* **workbench:** improve activation mapping UX and secure runtime auth ([8b5375f](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8b5375f7cc7c6596c21c383205f0638145385834))
+* **workbench:** improve activation mapping UX and secure runtime auth ([23ed3ee](https://github.com/pipe-works/pipeworks-policy-workbench/commit/23ed3ee6a135e935ef6364b0f16c54c3bf99e93b))
+
+
+### Fixes
+
+* **runtime:** preserve per-mode URL and tighten source header ([0978c47](https://github.com/pipe-works/pipeworks-policy-workbench/commit/0978c47994da1141ca486564c90456e0eab56f42))
+* **runtime:** preserve per-mode URL and tighten source header ([4b24a75](https://github.com/pipe-works/pipeworks-policy-workbench/commit/4b24a7522ba9f4277920caee09915473d0f675e1))
+* **workbench:** align editor line numbers and block invalid json ([8b2fd23](https://github.com/pipe-works/pipeworks-policy-workbench/commit/8b2fd23da31944102057b1718a2f75115e7c59c3))
+* **workbench:** enable clothing-block editing and inventory table view ([564ebc3](https://github.com/pipe-works/pipeworks-policy-workbench/commit/564ebc3a8d3d55a8dccc18398a80981d587a3534))
+* **workbench:** show actionable policy validation details ([d2ede48](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d2ede48e2f44e7ad773c9412e302cfa29af8781b))
+* **workbench:** support clothing block authoring and inventory table UX ([5dd1e68](https://github.com/pipe-works/pipeworks-policy-workbench/commit/5dd1e687837bd2dd97a3dd0cfbde5ece276b94ff))
+
+
+### Internal Changes
+
+* **workbench:** split inventory into facade and focused modules ([cf9f903](https://github.com/pipe-works/pipeworks-policy-workbench/commit/cf9f903463a6677d0deec91269f23e8c555235c7))
+* **workbench:** split inventory into facade and focused modules ([47619d9](https://github.com/pipe-works/pipeworks-policy-workbench/commit/47619d96c951420b49c8f248a7420ba3e2eefe68))
+
 ## [0.1.22](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.21...pipeworks-policy-workbench-v0.1.22) (2026-03-15)
 
 
