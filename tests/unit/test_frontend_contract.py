@@ -75,3 +75,11 @@ def test_legacy_runtime_label_hooks_are_not_reintroduced() -> None:
     )
     assert "runtime-mode-url-label" not in combined
     assert "runtime-auth-label" not in combined
+
+
+def test_runtime_mode_switch_does_not_implicitly_override_server_url() -> None:
+    """Mode-switch requests should not reuse typed URL unless explicitly applied."""
+
+    runtime_session = _read(_WORKBENCH_RUNTIME_SESSION)
+    assert "selectedRuntimeModeServerUrl" not in runtime_session
+    assert "if (explicitServerUrl !== null)" in runtime_session
