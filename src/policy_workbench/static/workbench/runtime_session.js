@@ -35,31 +35,17 @@ function requireRuntimeSessionDeps() {
   }
 }
 
-function selectedRuntimeModeServerUrl(modeKey) {
-  const option = state.runtimeModeOptionsByKey.get(modeKey) || null;
-  if (!option || option.source_kind !== "server_api") {
-    return "";
-  }
-
-  const typedUrl = (dom.runtimeModeUrl?.value || "").trim();
-  if (typedUrl) {
-    return typedUrl;
-  }
-  const activeServerUrl = (option.active_server_url || "").trim();
-  if (activeServerUrl) {
-    return activeServerUrl;
-  }
-  return (option.default_server_url || "").trim();
-}
-
 export async function setRuntimeMode(modeKey, { explicitServerUrl = null } = {}) {
   requireRuntimeSessionDeps();
   const requestPayload = { mode_key: modeKey };
-  const serverUrl = explicitServerUrl !== null
-    ? String(explicitServerUrl || "").trim()
-    : selectedRuntimeModeServerUrl(modeKey);
-  if (serverUrl) {
-    requestPayload.server_url = serverUrl;
+
+  // Only treat URL as an override when the user explicitly applies it.
+  // Mode-switch events should keep each mode's own active/default URL.
+  if (explicitServerUrl !== null) {
+    const serverUrl = String(explicitServerUrl || "").trim();
+    if (serverUrl) {
+      requestPayload.server_url = serverUrl;
+    }
   }
 
   const payload = await _fetchJson("/api/runtime-mode", {
