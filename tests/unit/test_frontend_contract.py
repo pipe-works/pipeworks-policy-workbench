@@ -12,7 +12,8 @@ _WORKBENCH_ENTRY = _WORKBENCH_STATIC / "workbench.js"
 _WORKBENCH_MODULE_DIR = _WORKBENCH_STATIC / "workbench"
 _WORKBENCH_APP = _WORKBENCH_MODULE_DIR / "app.js"
 _WORKBENCH_DOM = _WORKBENCH_MODULE_DIR / "dom.js"
-_WORKBENCH_INVENTORY = _WORKBENCH_MODULE_DIR / "inventory.js"
+_WORKBENCH_INVENTORY_FACADE = _WORKBENCH_MODULE_DIR / "inventory.js"
+_WORKBENCH_INVENTORY_DIR = _WORKBENCH_MODULE_DIR / "inventory"
 _WORKBENCH_RUNTIME = _WORKBENCH_MODULE_DIR / "runtime.js"
 _WORKBENCH_RUNTIME_SESSION = _WORKBENCH_MODULE_DIR / "runtime_session.js"
 _WORKBENCH_BOOT = _WORKBENCH_MODULE_DIR / "boot.js"
@@ -24,13 +25,24 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _inventory_sources() -> str:
+    sources = [_read(_WORKBENCH_INVENTORY_FACADE)]
+    for path in sorted(_WORKBENCH_INVENTORY_DIR.glob("*.js")):
+        sources.append(_read(path))
+    return "".join(sources)
+
+
 def _template_ids() -> set[str]:
     return set(re.findall(r'id="([A-Za-z0-9_-]+)"', _read(_TEMPLATE_PATH)))
 
 
 def _js_get_element_ids() -> set[str]:
     ids: set[str] = set()
-    for path in [_WORKBENCH_ENTRY, *_WORKBENCH_MODULE_DIR.glob("*.js")]:
+    for path in [
+        _WORKBENCH_ENTRY,
+        *_WORKBENCH_MODULE_DIR.glob("*.js"),
+        *_WORKBENCH_INVENTORY_DIR.glob("*.js"),
+    ]:
         ids.update(re.findall(r'getElementById\("([A-Za-z0-9_-]+)"\)', _read(path)))
     return ids
 
@@ -51,7 +63,7 @@ def test_dom_keys_are_used_by_app_module() -> None:
     consumer_sources = (
         _read(_WORKBENCH_APP)
         + _read(_WORKBENCH_RUNTIME)
-        + _read(_WORKBENCH_INVENTORY)
+        + _inventory_sources()
         + _read(_WORKBENCH_RUNTIME_SESSION)
         + _read(_WORKBENCH_BOOT)
         + _read(_WORKBENCH_EDITOR_ACTIONS)
@@ -66,7 +78,7 @@ def test_legacy_runtime_label_hooks_are_not_reintroduced() -> None:
     combined = (
         _read(_WORKBENCH_ENTRY)
         + _read(_WORKBENCH_APP)
-        + _read(_WORKBENCH_INVENTORY)
+        + _inventory_sources()
         + _read(_WORKBENCH_RUNTIME)
         + _read(_WORKBENCH_RUNTIME_SESSION)
         + _read(_WORKBENCH_BOOT)
@@ -88,7 +100,7 @@ def test_runtime_mode_switch_does_not_implicitly_override_server_url() -> None:
 def test_world_dropdown_uses_canonical_api_name_without_id_suffix() -> None:
     """World selector labels should not append transformed IDs when name is present."""
 
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     assert "${worldName} (${worldId})" not in inventory_source
 
 
@@ -96,7 +108,7 @@ def test_inventory_renders_table_rows_for_policy_list() -> None:
     """Inventory renderer should build table-based policy rows."""
 
     template_source = _read(_TEMPLATE_PATH)
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     assert 'id="inventory-list"' in template_source
     assert "inventory-table" in inventory_source
     assert 'document.createElement("table")' in inventory_source
@@ -105,7 +117,7 @@ def test_inventory_renders_table_rows_for_policy_list() -> None:
 def test_editor_view_renders_canonical_json_content_for_policy_objects() -> None:
     """Editor rendering should preserve canonical object shape from mud-server payloads."""
 
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     assert "return JSON.stringify(content, null, 2);" in inventory_source
     assert 'return String(content.text || "");' not in inventory_source
     assert 'return buildSpeciesYamlFromText(content.text || "");' not in inventory_source
@@ -134,7 +146,7 @@ def test_activation_view_renders_table_with_filters() -> None:
     """Activation mappings should render as a filterable table, not report chips."""
 
     template_source = _read(_TEMPLATE_PATH)
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     assert 'id="activation-filter-policy-type"' in template_source
     assert 'id="activation-filter-namespace"' in template_source
     assert 'id="activation-filter-status"' in template_source
@@ -152,14 +164,14 @@ def test_activation_view_renders_table_with_filters() -> None:
 
 def test_species_block_editor_view_renders_canonical_json_content() -> None:
     """Species blocks should render canonical object JSON in editor view."""
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     assert 'return buildSpeciesYamlFromText(content.text || "");' not in inventory_source
 
 
 def test_clothing_block_is_in_authorable_policy_type_set() -> None:
     """Clothing blocks should be editable through the policy workbench authoring flow."""
 
-    inventory_source = _read(_WORKBENCH_INVENTORY)
+    inventory_source = _inventory_sources()
     authorable_set_match = re.search(
         r"const AUTHORABLE_POLICY_TYPES = new Set\(\[(.*?)\]\);",
         inventory_source,
@@ -167,3 +179,40 @@ def test_clothing_block_is_in_authorable_policy_type_set() -> None:
     )
     assert authorable_set_match is not None
     assert '"clothing_block"' in authorable_set_match.group(1)
+
+
+def test_inventory_facade_export_contract_is_stable() -> None:
+    """Facade exports should remain stable while implementation modules move."""
+
+    facade_source = _read(_WORKBENCH_INVENTORY_FACADE)
+    exported_names: set[str] = set()
+    for block in re.findall(r"export\s+\{([^}]+)\}\s+from", facade_source, flags=re.S):
+        for raw_name in block.split(","):
+            normalized = raw_name.strip()
+            if not normalized:
+                continue
+            exported_names.add(normalized.split(" as ")[0].strip())
+
+    expected_exports = {
+        "configureInventory",
+        "setEditorReadOnlyMode",
+        "setAvailableWorldOptions",
+        "clearAvailableWorldOptions",
+        "refreshPolicyNamespaceOptions",
+        "refreshPolicyFilterOptions",
+        "buildPolicySelectorLabel",
+        "renderPolicyInventory",
+        "refreshPolicyInventory",
+        "loadPolicyObject",
+        "readActivationScopeInputs",
+        "updateActivationScopeLabel",
+        "updateActivationSaveSummary",
+        "renderActivationMessage",
+        "updateActivationStatusActionState",
+        "applySelectedActivationStatus",
+        "applyActivationFilters",
+        "refreshActivationScope",
+        "renderUnauthorizedServerState",
+    }
+    assert exported_names == expected_exports
+    assert "export function " not in facade_source
