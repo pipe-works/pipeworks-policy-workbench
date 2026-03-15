@@ -108,6 +108,7 @@ export function setEditorFromPolicyRecord(policy) {
   updateCurrentObjectPanel(policy);
   setSourceBadges();
   setServerFeatureAvailability();
+  window.dispatchEvent(new Event("pw:editor-content-updated"));
 }
 
 export { buildPolicySelectorLabel };

@@ -478,6 +478,27 @@
   gap: var(--sp-2);
 }
 
+.editor-lint-status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.editor-lint-status--muted {
+  color: var(--col-text-muted);
+}
+
+.editor-lint-status--ok {
+  color: var(--col-ok);
+}
+
+.editor-lint-status--warn {
+  color: var(--col-warn);
+}
+
+.editor-lint-status--err {
+  color: var(--col-err);
+}
+
 .activation-save-summary {
   display: flex;
   flex-direction: column;

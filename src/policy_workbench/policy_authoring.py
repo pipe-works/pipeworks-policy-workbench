@@ -94,6 +94,16 @@ class PolicySaveResult:
     activation_audit_event_id: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class PolicyValidateResult:
+    """Normalized validate-only result returned by mud-server policy APIs."""
+
+    policy_id: str
+    variant: str
+    policy_version: int
+    validation_run_id: int
+
+
 def selector_from_relative_path(relative_path: str) -> PolicySelector | None:
     """Resolve canonical policy selector for a workbench relative path.
 
@@ -194,29 +204,16 @@ def save_policy_variant_from_raw_content(
         variant=selector.variant,
     )
 
-    validate_payload = _request_json(
-        method="POST",
-        url=(
-            f"{runtime_config.base_url}/api/policies/{quote(policy_id, safe='')}/validate"
-            f"?session_id={quote(runtime_config.session_id, safe='')}"
-            f"&variant={quote(selector.variant, safe='')}"
-        ),
-        timeout_seconds=runtime_config.timeout_seconds,
-        json_payload={
-            "schema_version": schema_version,
-            "policy_version": next_policy_version,
-            "status": status,
-            "content": content,
-            "validated_by": actor,
-        },
+    validate_payload = _run_policy_validate_request(
+        runtime_config=runtime_config,
+        policy_id=policy_id,
+        variant=selector.variant,
+        schema_version=schema_version,
+        status=status,
+        policy_version=next_policy_version,
+        content=content,
+        actor=actor,
     )
-    if validate_payload is None:
-        raise ValueError("Validation request returned no payload.")
-    if not bool(validate_payload.get("is_valid", False)):
-        errors = validate_payload.get("errors") or []
-        if isinstance(errors, list) and errors:
-            raise ValueError("; ".join(str(item) for item in errors))
-        raise ValueError("Validation failed for policy payload.")
 
     # Only perform upsert after validate succeeds so canonical API write paths
     # preserve validate -> save ordering guarantees relied on by operators and CI.
@@ -279,6 +276,41 @@ def save_policy_variant_from_raw_content(
         content_hash=str(upsert_payload["content_hash"]),
         validation_run_id=int(cast(int | str, validate_payload["validation_run_id"])),
         activation_audit_event_id=activation_audit_event_id,
+    )
+
+
+def validate_policy_variant_from_raw_content(
+    *,
+    selector: PolicySelector,
+    raw_content: str,
+    schema_version: str,
+    status: str,
+    actor: str | None,
+    runtime_config: MudPolicyRuntimeConfig,
+) -> PolicyValidateResult:
+    """Validate one policy variant payload through mud-server canonical API."""
+    content = _build_policy_content_from_raw(selector=selector, raw_content=raw_content)
+    policy_id = selector.policy_id
+    next_policy_version = _resolve_next_policy_version(
+        runtime_config=runtime_config,
+        policy_id=policy_id,
+        variant=selector.variant,
+    )
+    validate_payload = _run_policy_validate_request(
+        runtime_config=runtime_config,
+        policy_id=policy_id,
+        variant=selector.variant,
+        schema_version=schema_version,
+        status=status,
+        policy_version=next_policy_version,
+        content=content,
+        actor=actor,
+    )
+    return PolicyValidateResult(
+        policy_id=policy_id,
+        variant=selector.variant,
+        policy_version=next_policy_version,
+        validation_run_id=int(cast(int | str, validate_payload["validation_run_id"])),
     )
 
 
@@ -361,6 +393,44 @@ def _resolve_next_policy_version(
         return 1
     raw_policy_version = response.get("policy_version", 0)
     return int(cast(int | str, raw_policy_version)) + 1
+
+
+def _run_policy_validate_request(
+    *,
+    runtime_config: MudPolicyRuntimeConfig,
+    policy_id: str,
+    variant: str,
+    schema_version: str,
+    status: str,
+    policy_version: int,
+    content: dict[str, object],
+    actor: str | None,
+) -> dict[str, object]:
+    """Call mud-server validate endpoint and raise on invalid payloads."""
+    validate_payload = _request_json(
+        method="POST",
+        url=(
+            f"{runtime_config.base_url}/api/policies/{quote(policy_id, safe='')}/validate"
+            f"?session_id={quote(runtime_config.session_id, safe='')}"
+            f"&variant={quote(variant, safe='')}"
+        ),
+        timeout_seconds=runtime_config.timeout_seconds,
+        json_payload={
+            "schema_version": schema_version,
+            "policy_version": policy_version,
+            "status": status,
+            "content": content,
+            "validated_by": actor,
+        },
+    )
+    if validate_payload is None:
+        raise ValueError("Validation request returned no payload.")
+    if not bool(validate_payload.get("is_valid", False)):
+        errors = validate_payload.get("errors") or []
+        if isinstance(errors, list) and errors:
+            raise ValueError("; ".join(str(item) for item in errors))
+        raise ValueError("Validation failed for policy payload.")
+    return cast(dict[str, object], validate_payload)
 
 
 def _build_policy_content_from_raw(

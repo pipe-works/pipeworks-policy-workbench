@@ -172,9 +172,14 @@
         placeholder="Select a policy object from inventory to begin editing."
       ></textarea>
 
+      <div id="editor-lint-status" class="editor-lint-status editor-lint-status--muted" aria-live="polite">
+        Read-only. Click Edit Policy to lint and validate draft changes.
+      </div>
+
       <div class="editor-actions">
         <button id="btn-edit-file" class="btn btn--secondary" type="button">Edit Policy</button>
         <button id="btn-close-file" class="btn btn--secondary" type="button">Close Editor</button>
+        <button id="btn-validate-file" class="btn btn--secondary" type="button">Validate Policy</button>
         <button id="btn-save-file" class="btn btn--primary" type="button">Save Policy</button>
         <button id="btn-reload-file" class="btn btn--secondary" type="button">Reload File</button>
       </div>

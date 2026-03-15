@@ -161,6 +161,30 @@ class PolicySaveResponse(BaseModel):
     activation_audit_event_id: int | None
 
 
+class PolicyValidateRequest(BaseModel):
+    """Request payload for validate-only policy object checks."""
+
+    policy_type: str = Field(min_length=1)
+    namespace: str = Field(min_length=1)
+    policy_key: str = Field(min_length=1)
+    variant: str = Field(min_length=1)
+    raw_content: str
+    schema_version: str = Field(default="1.0", min_length=1)
+    status: str = Field(default="draft", min_length=1)
+    actor: str | None = None
+    session_id: str | None = None
+
+
+class PolicyValidateResponse(BaseModel):
+    """Response payload for validate-only policy object checks."""
+
+    policy_id: str
+    variant: str
+    policy_version: int
+    validation_run_id: int
+    is_valid: bool
+
+
 class PolicyObjectSummaryResponse(BaseModel):
     """Summary row for API-first policy inventory listing."""
 

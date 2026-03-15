@@ -151,6 +151,46 @@ def test_save_species_block_from_yaml_runs_validate_then_upsert_then_activate(mo
     assert any("/policy-activations" in call for call in calls)
 
 
+def test_validate_policy_variant_from_raw_content_runs_validate_only(monkeypatch) -> None:
+    """Validate helper should call validate endpoint and avoid upsert/activation writes."""
+
+    selector = PolicySelector(
+        policy_type="species_block",
+        namespace="image.blocks.species",
+        policy_key="goblin",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    calls: list[str] = []
+
+    def _fake_request_json(**kwargs):
+        calls.append(kwargs["url"])
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 301}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 9)
+
+    result = policy_authoring.validate_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"Canonical goblin text."}',
+        schema_version="1.0",
+        status="draft",
+        actor="tester",
+        runtime_config=config,
+    )
+
+    assert result.policy_id == "species_block:image.blocks.species:goblin"
+    assert result.variant == "v1"
+    assert result.policy_version == 9
+    assert result.validation_run_id == 301
+    assert any("/validate" in call for call in calls)
+    assert not any("/variants/" in call for call in calls)
+    assert not any("/policy-activations" in call for call in calls)
+
+
 def test_save_policy_variant_from_raw_content_supports_prompt_text(monkeypatch) -> None:
     """Generic save helper should serialize prompt text into canonical content payload."""
     selector = PolicySelector(

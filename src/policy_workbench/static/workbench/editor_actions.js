@@ -28,6 +28,133 @@ function hasUnsavedEditorChanges() {
   return String(dom.fileEditor?.value || "") !== String(state.editorBaseContent || "");
 }
 
+const STRUCTURED_POLICY_TYPES = new Set([
+  "species_block",
+  "clothing_block",
+  "tone_profile",
+  "descriptor_layer",
+  "registry",
+]);
+
+const TEXT_OR_OBJECT_POLICY_TYPES = new Set(["prompt", "image_block"]);
+
+function setEditorLintStatus({ tone, message }) {
+  if (!dom.editorLintStatus) {
+    return;
+  }
+  dom.editorLintStatus.classList.remove(
+    "editor-lint-status--muted",
+    "editor-lint-status--ok",
+    "editor-lint-status--warn",
+    "editor-lint-status--err"
+  );
+  dom.editorLintStatus.classList.add(`editor-lint-status--${tone}`);
+  dom.editorLintStatus.textContent = message;
+}
+
+function normalizeJsonSyntaxError(error) {
+  const message = String(error?.message || "").trim();
+  if (!message) {
+    return "Invalid JSON syntax.";
+  }
+  return `JSON syntax error: ${message}`;
+}
+
+function parseJsonObject(rawContent) {
+  const parsed = JSON.parse(rawContent);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {
+      ok: false,
+      message: "Expected a JSON object at the top level.",
+    };
+  }
+  return {
+    ok: true,
+    message: "Valid JSON object syntax.",
+  };
+}
+
+function evaluateEditorLintState() {
+  if (!state.selectedPolicyRecord || !state.selectedArtifact) {
+    return {
+      tone: "muted",
+      message: "Select a policy object to begin editing.",
+    };
+  }
+  if (!state.editorIsEditing) {
+    return {
+      tone: "muted",
+      message: "Read-only. Click Edit Policy to lint and validate draft changes.",
+    };
+  }
+
+  const policyType = String(state.selectedArtifact.policy_type || "").trim();
+  const rawContent = String(dom.fileEditor?.value || "");
+  const trimmed = rawContent.trim();
+  if (!trimmed) {
+    return {
+      tone: "warn",
+      message: "Editor is empty. Save/Validate will fail until content is provided.",
+    };
+  }
+
+  const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
+
+  if (STRUCTURED_POLICY_TYPES.has(policyType)) {
+    try {
+      const jsonCheck = parseJsonObject(rawContent);
+      if (jsonCheck.ok) {
+        return { tone: "ok", message: jsonCheck.message };
+      }
+      return { tone: "err", message: jsonCheck.message };
+    } catch (error) {
+      if (looksLikeJson) {
+        return { tone: "err", message: normalizeJsonSyntaxError(error) };
+      }
+      return {
+        tone: "warn",
+        message: "Non-JSON syntax detected. Server validation may still accept YAML.",
+      };
+    }
+  }
+
+  if (TEXT_OR_OBJECT_POLICY_TYPES.has(policyType)) {
+    if (!looksLikeJson) {
+      return {
+        tone: "ok",
+        message: "Text mode syntax is acceptable. Use Validate for canonical checks.",
+      };
+    }
+
+    try {
+      const jsonCheck = parseJsonObject(rawContent);
+      if (jsonCheck.ok) {
+        return {
+          tone: "ok",
+          message: "Valid JSON object syntax for text/object policy content.",
+        };
+      }
+      return { tone: "warn", message: jsonCheck.message };
+    } catch (error) {
+      return {
+        tone: "warn",
+        message: `${normalizeJsonSyntaxError(error)} Save will treat this as plain text.`,
+      };
+    }
+  }
+
+  return {
+    tone: "muted",
+    message: "No local lint rules for this policy type. Use Validate for server checks.",
+  };
+}
+
+export function refreshEditorLintStatus() {
+  const lintState = evaluateEditorLintState();
+  setEditorLintStatus(lintState);
+  return lintState;
+}
+
 function normalizeVariantScopeSegment(value) {
   return String(value || "")
     .trim()
@@ -56,6 +183,40 @@ function buildScopedVariantName({ baseVariant, worldId, clientProfile }) {
 function saveScopeMode() {
   const mode = String(dom.saveScopeMode?.value || "world_only").trim();
   return mode === "global_update" ? "global_update" : "world_only";
+}
+
+function resolveSaveMutationInputs() {
+  const isWorldOnlyMode = saveScopeMode() === "world_only";
+  const rolloutAllWorlds = Boolean(dom.saveRolloutAllWorlds?.checked && isWorldOnlyMode);
+  const activateAfterSave = isWorldOnlyMode ? true : Boolean(dom.activationEnable?.checked);
+  const activationScope = readActivationScopeInputs();
+  const resolvedVariant = isWorldOnlyMode && activationScope.worldId
+    ? buildScopedVariantName({
+        baseVariant: state.selectedArtifact.variant,
+        worldId: activationScope.worldId,
+        clientProfile: activationScope.clientProfile,
+      })
+    : state.selectedArtifact.variant;
+  return {
+    isWorldOnlyMode,
+    rolloutAllWorlds,
+    activateAfterSave,
+    activationScope,
+    resolvedVariant,
+  };
+}
+
+function buildPolicyMutationPayload({ resolvedVariant, activateAfterSave }) {
+  return {
+    policy_type: state.selectedArtifact.policy_type,
+    namespace: state.selectedArtifact.namespace,
+    policy_key: state.selectedArtifact.policy_key,
+    variant: resolvedVariant,
+    raw_content: String(dom.fileEditor?.value || ""),
+    schema_version: String(state.selectedPolicyRecord?.schema_version || "1.0"),
+    status: "draft",
+    activate: activateAfterSave,
+  };
 }
 
 async function activatePolicyScope({
@@ -126,6 +287,7 @@ export function openEditorForCurrentSelection() {
 
   state.editorIsEditing = true;
   setEditorReadOnlyMode(false);
+  refreshEditorLintStatus();
   dom.fileEditor?.focus();
   _setStatus(`Edit mode enabled for ${buildPolicySelectorLabel(state.selectedArtifact)}.`);
 }
@@ -149,6 +311,7 @@ export function closeEditorForCurrentSelection() {
   dom.fileEditor.value = String(state.editorBaseContent || "");
   state.editorIsEditing = false;
   setEditorReadOnlyMode(true);
+  refreshEditorLintStatus();
   _setStatus(`Editor closed for ${buildPolicySelectorLabel(state.selectedArtifact)}.`);
 }
 
@@ -156,7 +319,46 @@ export function handleEditorInputChange() {
   if (!state.selectedPolicyRecord) {
     return;
   }
+  refreshEditorLintStatus();
   setServerFeatureAvailability();
+}
+
+export async function validateCurrentFile() {
+  requireEditorDeps();
+  if (!isServerAuthorized()) {
+    _setStatus("Validate unavailable: admin/superuser mud-server session required.");
+    return;
+  }
+  if (!state.selectedArtifact || !state.selectedArtifact.is_authorable || !state.selectedPolicyRecord) {
+    _setStatus("Select an authorable policy object before validating.");
+    return;
+  }
+
+  const lintState = refreshEditorLintStatus();
+  const { isWorldOnlyMode, activationScope, resolvedVariant } = resolveSaveMutationInputs();
+  const targetLabel = buildPolicySelectorLabel(state.selectedArtifact);
+  const scopeSuffix = isWorldOnlyMode && activationScope.worldId
+    ? ` (world scope ${activationScope.scope})`
+    : "";
+  _setStatus(`Validating ${targetLabel}${scopeSuffix}...`);
+
+  try {
+    const validatePayload = buildPolicyMutationPayload({
+      resolvedVariant,
+      activateAfterSave: false,
+    });
+    const validateResult = await _fetchJson("/api/policy-validate", {
+      method: "POST",
+      body: JSON.stringify(validatePayload),
+    });
+    _setStatus(
+      `Validation passed for ${validateResult.policy_id}:${validateResult.variant} `
+      + `(run ${validateResult.validation_run_id}, next v${validateResult.policy_version}).`
+    );
+  } catch (error) {
+    const lintPrefix = lintState.tone === "err" ? `${lintState.message} ` : "";
+    _setStatus(`Validation failed: ${lintPrefix}${error.message}`);
+  }
 }
 
 export async function saveCurrentFile() {
@@ -178,11 +380,13 @@ export async function saveCurrentFile() {
     return;
   }
 
-  const scopeMode = saveScopeMode();
-  const isWorldOnlyMode = scopeMode === "world_only";
-  const rolloutAllWorlds = Boolean(dom.saveRolloutAllWorlds?.checked && isWorldOnlyMode);
-  const activateAfterSave = isWorldOnlyMode ? true : Boolean(dom.activationEnable?.checked);
-  const activationScope = readActivationScopeInputs();
+  const {
+    isWorldOnlyMode,
+    rolloutAllWorlds,
+    activateAfterSave,
+    activationScope,
+    resolvedVariant,
+  } = resolveSaveMutationInputs();
   if ((activateAfterSave || rolloutAllWorlds) && !activationScope.worldId) {
     _setStatus("Cannot activate after save: select a world first.");
     setActiveMainTab("activation");
@@ -198,24 +402,7 @@ export async function saveCurrentFile() {
         : `Saving ${targetLabel} via mud-server policy API...`
   );
   try {
-    const resolvedVariant = isWorldOnlyMode
-      ? buildScopedVariantName({
-          baseVariant: state.selectedArtifact.variant,
-          worldId: activationScope.worldId,
-          clientProfile: activationScope.clientProfile,
-        })
-      : state.selectedArtifact.variant;
-
-    const savePayload = {
-      policy_type: state.selectedArtifact.policy_type,
-      namespace: state.selectedArtifact.namespace,
-      policy_key: state.selectedArtifact.policy_key,
-      variant: resolvedVariant,
-      raw_content: dom.fileEditor.value,
-      schema_version: "1.0",
-      status: "draft",
-      activate: activateAfterSave,
-    };
+    const savePayload = buildPolicyMutationPayload({ resolvedVariant, activateAfterSave });
     if (activateAfterSave) {
       savePayload.world_id = activationScope.worldId;
       if (activationScope.clientProfile) {
@@ -276,5 +463,6 @@ export async function reloadCurrentFile() {
     await loadPolicyObject(state.selectedPolicyRecord.policy_id, state.selectedPolicyRecord.variant);
     return;
   }
+  refreshEditorLintStatus();
   _setStatus("Select a policy object before reloading.");
 }
