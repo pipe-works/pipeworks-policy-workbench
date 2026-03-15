@@ -25,6 +25,8 @@ from .runtime_mode import (
 )
 from .web_models import (
     PolicyActivationScopeResponse,
+    PolicyActivationSetRequest,
+    PolicyActivationSetResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyPublishRunProxyResponse,
@@ -40,6 +42,7 @@ from .web_models import (
 )
 from .web_services import (
     build_policy_activation_scope_payload,
+    build_policy_activation_set_payload,
     build_policy_inventory_payload,
     build_policy_namespace_options_payload,
     build_policy_object_detail_payload,
@@ -289,6 +292,24 @@ def create_web_app(
                 scope=scope,
                 effective=effective,
                 session_id_override=session_id,
+                base_url_override=server_api_url,
+            )
+        )
+
+    @app.post("/api/policy-activation-set", response_model=PolicyActivationSetResponse)
+    async def api_policy_activation_set(
+        payload: PolicyActivationSetRequest,
+    ) -> PolicyActivationSetResponse:
+        """Set one activation pointer through mud-server canonical policy activation API."""
+
+        return _run_server_api_route(
+            lambda server_api_url: build_policy_activation_set_payload(
+                world_id=payload.world_id,
+                client_profile=payload.client_profile,
+                policy_id=payload.policy_id,
+                variant=payload.variant,
+                activated_by=payload.activated_by,
+                session_id_override=payload.session_id,
                 base_url_override=server_api_url,
             )
         )

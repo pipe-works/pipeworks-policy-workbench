@@ -102,15 +102,38 @@ def test_inventory_renders_table_rows_for_policy_list() -> None:
     assert 'document.createElement("table")' in inventory_source
 
 
-def test_clothing_block_editor_view_renders_canonical_json_content() -> None:
-    """Clothing blocks should not use text-only projection in editor view."""
+def test_editor_view_renders_canonical_json_content_for_policy_objects() -> None:
+    """Editor rendering should preserve canonical object shape from mud-server payloads."""
 
     inventory_source = _read(_WORKBENCH_INVENTORY)
-    assert 'policy.policy_type === "image_block"' in inventory_source
-    assert (
-        'policy.policy_type === "image_block" || policy.policy_type === "clothing_block"'
-        not in (inventory_source)
-    )
+    assert "return JSON.stringify(content, null, 2);" in inventory_source
+    assert 'return String(content.text || "");' not in inventory_source
+    assert 'return buildSpeciesYamlFromText(content.text || "");' not in inventory_source
+
+
+def test_editor_controls_expose_edit_and_close_actions() -> None:
+    """Editor controls should include explicit edit-mode entry/exit actions."""
+
+    template_source = _read(_TEMPLATE_PATH)
+    assert 'id="btn-edit-file"' in template_source
+    assert 'id="btn-close-file"' in template_source
+    assert 'id="save-scope-mode"' in template_source
+    assert 'id="save-rollout-all-worlds"' in template_source
+
+
+def test_editor_actions_support_world_scoped_rollout_activation() -> None:
+    """Editor save flow should support world-scoped activation rollout calls."""
+
+    editor_actions_source = _read(_WORKBENCH_EDITOR_ACTIONS)
+    assert '"/api/policy-activation-set"' in editor_actions_source
+    assert "buildScopedVariantName" in editor_actions_source
+    assert "rolloutVariantToOtherWorlds" in editor_actions_source
+
+
+def test_species_block_editor_view_renders_canonical_json_content() -> None:
+    """Species blocks should render canonical object JSON in editor view."""
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    assert 'return buildSpeciesYamlFromText(content.text || "");' not in inventory_source
 
 
 def test_clothing_block_is_in_authorable_policy_type_set() -> None:

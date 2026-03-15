@@ -36,9 +36,6 @@ function requireInventoryDeps() {
 export function setEditorReadOnlyMode(isReadOnly) {
   dom.fileEditor.readOnly = isReadOnly;
   dom.fileEditor.classList.toggle("is-readonly", isReadOnly);
-  if (dom.btnReloadFile) {
-    dom.btnReloadFile.disabled = false;
-  }
   setServerFeatureAvailability();
 }
 
@@ -402,6 +399,7 @@ function updateCurrentObjectPanel(policy) {
 
 function setEditorFromPolicyRecord(policy) {
   const isAuthorable = isAuthorablePolicyType(policy.policy_type);
+  const rawEditorContent = buildRawEditorContentFromPolicy(policy);
   state.selectedPolicyRecord = policy;
   state.selectedArtifact = {
     policy_type: policy.policy_type,
@@ -410,38 +408,22 @@ function setEditorFromPolicyRecord(policy) {
     variant: policy.variant,
     is_authorable: isAuthorable,
   };
-  setEditorReadOnlyMode(!isAuthorable);
+  state.editorIsEditing = false;
+  state.editorBaseContent = rawEditorContent;
+  setEditorReadOnlyMode(true);
   dom.editorPath.textContent = `${policy.policy_id}:${policy.variant} · db-object`;
   dom.editorPath.title =
     `${policy.policy_id}:${policy.variant}\nstatus=${policy.status} version=${policy.policy_version}`;
-  dom.fileEditor.value = buildRawEditorContentFromPolicy(policy);
+  dom.fileEditor.value = rawEditorContent;
   updateCurrentObjectPanel(policy);
   setSourceBadges();
   setServerFeatureAvailability();
 }
 
-function buildSpeciesYamlFromText(textValue) {
-  const normalized = String(textValue || "").replaceAll("\r\n", "\n").replaceAll("\r", "\n");
-  const lines = normalized.split("\n");
-  return `text: |\n${lines.map((line) => `  ${line}`).join("\n")}`;
-}
-
 function buildRawEditorContentFromPolicy(policy) {
   const content = policy.content || {};
-  if (policy.policy_type === "species_block") {
-    return buildSpeciesYamlFromText(content.text || "");
-  }
-  if (policy.policy_type === "prompt") {
-    return String(content.text || "");
-  }
-  if (policy.policy_type === "image_block") {
-    return String(content.text || "");
-  }
-  if (policy.policy_type === "clothing_block") {
-    // Render canonical DB/API payload so operators can inspect/edit the exact
-    // object shape that is persisted server-side.
-    return JSON.stringify(content, null, 2);
-  }
+  // Render canonical DB/API payload for every policy type so operators can
+  // inspect/edit the exact object shape persisted server-side.
   return JSON.stringify(content, null, 2);
 }
 
@@ -633,13 +615,13 @@ export function updateActivationScopeLabel() {
   }
   const { worldId, clientProfile } = readActivationScopeInputs();
   if (!worldId) {
-    dom.activationScopeLabel.textContent = "scope: none selected";
+    dom.activationScopeLabel.textContent = "Scope: none selected";
     updateActivationSaveSummary();
     return;
   }
   dom.activationScopeLabel.textContent = clientProfile
-    ? `scope: ${worldId}:${clientProfile}`
-    : `scope: ${worldId}`;
+    ? `Scope: ${worldId}:${clientProfile}`
+    : `Scope: ${worldId}`;
   updateActivationSaveSummary();
 }
 
@@ -647,25 +629,54 @@ export function updateActivationSaveSummary() {
   if (!dom.activationSaveSummary) {
     return;
   }
-  const activateAfterSave = Boolean(dom.activationEnable?.checked);
+  const saveScopeMode = String(dom.saveScopeMode?.value || "world_only").trim();
+  const isWorldOnlyMode = saveScopeMode !== "global_update";
+  const rolloutAllWorlds = Boolean(dom.saveRolloutAllWorlds?.checked);
+  if (dom.activationEnable) {
+    if (isWorldOnlyMode) {
+      dom.activationEnable.checked = true;
+    }
+  }
+  if (dom.saveRolloutAllWorldsRow) {
+    dom.saveRolloutAllWorldsRow.hidden = !isWorldOnlyMode;
+  }
+  if (dom.activationEnableRow) {
+    dom.activationEnableRow.hidden = isWorldOnlyMode;
+  }
+  const activateAfterSave = isWorldOnlyMode ? true : Boolean(dom.activationEnable?.checked);
   const { worldId, scope } = readActivationScopeInputs();
   const summaryLabel = dom.activationSaveSummary;
   summaryLabel.classList.remove("activation-save-summary__meta--warning");
 
+  if (isWorldOnlyMode) {
+    if (!worldId) {
+      summaryLabel.textContent = "Will save only for the current world. Choose a world first.";
+      summaryLabel.classList.add("activation-save-summary__meta--warning");
+      setServerFeatureAvailability();
+      return;
+    }
+    summaryLabel.textContent = rolloutAllWorlds
+      ? `Will save for ${scope}, then apply the same variant to all accessible worlds.`
+      : `Will save for ${scope} only. Other worlds stay unchanged.`;
+    setServerFeatureAvailability();
+    return;
+  }
+
   if (!activateAfterSave) {
-    summaryLabel.textContent = worldId
-      ? `Activation after save: Off · Scope: ${scope}`
-      : "Activation after save: Off · Scope: none selected";
+    summaryLabel.textContent = "Will update the shared variant only. No activation change.";
+    setServerFeatureAvailability();
     return;
   }
 
   if (!worldId) {
-    summaryLabel.textContent = "Activation after save: On · Scope: none selected";
+    summaryLabel.textContent = "Will update shared variant and activate it after save. Choose a world first.";
     summaryLabel.classList.add("activation-save-summary__meta--warning");
+    setServerFeatureAvailability();
     return;
   }
 
-  summaryLabel.textContent = `Activation after save: On · Scope: ${scope}`;
+  summaryLabel.textContent = `Will update shared variant and activate it for ${scope}.`;
+  setServerFeatureAvailability();
 }
 
 export function renderActivationMessage(message, tone = "info") {
@@ -769,6 +780,9 @@ export function renderUnauthorizedServerState(runtimeAuth = null) {
   state.inventoryItems = [];
   state.selectedPolicyRecord = null;
   state.selectedArtifact = null;
+  state.editorIsEditing = false;
+  state.editorBaseContent = "";
+  setEditorReadOnlyMode(true);
   renderPolicyInventory([]);
   clearCurrentObjectPanel();
   const status = runtimeAuth?.status || runtimeAuthStatus();

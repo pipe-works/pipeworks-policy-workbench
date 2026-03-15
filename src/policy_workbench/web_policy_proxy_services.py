@@ -13,6 +13,7 @@ from urllib.parse import quote
 from .mud_api_runtime import MudApiRuntimeConfig
 from .web_models import (
     PolicyActivationScopeResponse,
+    PolicyActivationSetResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyObjectSummaryResponse,
@@ -41,6 +42,7 @@ class AuthenticatedMudApiFetcher(Protocol):
         method: str,
         path: str,
         query_params: dict[str, str],
+        json_payload: dict[str, object] | None = None,
     ) -> dict[str, object]: ...
 
 
@@ -200,4 +202,53 @@ def build_policy_publish_run_payload(
     return cast(
         PolicyPublishRunProxyResponse,
         PolicyPublishRunProxyResponse.model_validate(payload),
+    )
+
+
+def build_policy_activation_set_payload(
+    *,
+    world_id: str,
+    client_profile: str | None,
+    policy_id: str,
+    variant: str,
+    activated_by: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None,
+    resolve_runtime_config: RuntimeConfigResolver,
+    fetch_mud_api_json: AuthenticatedMudApiFetcher,
+) -> PolicyActivationSetResponse:
+    """Set one activation pointer through mud-server canonical policy activation API."""
+    normalized_world_id = str(world_id or "").strip()
+    normalized_policy_id = str(policy_id or "").strip()
+    normalized_variant = str(variant or "").strip()
+    normalized_client_profile = str(client_profile or "").strip()
+    normalized_activated_by = str(activated_by or "").strip()
+
+    if not normalized_world_id:
+        raise ValueError("world_id is required.")
+    if not normalized_policy_id:
+        raise ValueError("policy_id is required.")
+    if not normalized_variant:
+        raise ValueError("variant is required.")
+
+    runtime = resolve_runtime_config(
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+    )
+    payload = fetch_mud_api_json(
+        runtime=runtime,
+        method="POST",
+        path="/api/policy-activations",
+        query_params={},
+        json_payload={
+            "world_id": normalized_world_id,
+            "client_profile": normalized_client_profile or None,
+            "policy_id": normalized_policy_id,
+            "variant": normalized_variant,
+            "activated_by": normalized_activated_by or None,
+        },
+    )
+    return cast(
+        PolicyActivationSetResponse,
+        PolicyActivationSetResponse.model_validate(payload),
     )

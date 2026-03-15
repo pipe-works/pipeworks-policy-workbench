@@ -9,4 +9,6 @@ export const state = {
   runtimeModeOptionsByKey: new Map(),
   availableWorlds: [],
   selectedWorldId: "",
+  editorIsEditing: false,
+  editorBaseContent: "",
 };

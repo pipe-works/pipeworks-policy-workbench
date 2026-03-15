@@ -18,7 +18,6 @@ from urllib.request import urlopen
 import yaml  # type: ignore[import-untyped]
 
 from . import mud_api_client
-from .extractors import extract_yaml_text_field
 from .mud_api_runtime import resolve_mud_api_runtime_config
 
 _DEFAULT_MUD_API_BASE_URL = "http://127.0.0.1:8000"
@@ -376,13 +375,27 @@ def _build_policy_content_from_raw(
     ultimately enforced by mud-server validation endpoints.
     """
     if selector.policy_type == "species_block":
-        return {"text": extract_yaml_text_field(raw_content)}
+        payload = _parse_structured_object_from_raw(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
+        text_value = payload.get("text")
+        if isinstance(text_value, str):
+            payload = dict(payload)
+            payload["text"] = text_value.strip()
+        return payload
 
     if selector.policy_type == "prompt":
-        return {"text": raw_content.strip()}
+        return _build_text_like_policy_content(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
 
     if selector.policy_type == "image_block":
-        return {"text": raw_content.strip()}
+        return _build_text_like_policy_content(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
 
     if selector.policy_type == "clothing_block":
         return _parse_structured_object_from_raw(
@@ -449,6 +462,29 @@ def _parse_structured_object_from_raw(
     if not isinstance(parsed, dict):
         raise ValueError(f"{policy_type} raw_content must be a YAML/JSON object.")
     return cast(dict[str, object], parsed)
+
+
+def _build_text_like_policy_content(
+    *,
+    raw_content: str,
+    policy_type: str,
+) -> dict[str, object]:
+    """Build content payload for text-first policy types with object fallback."""
+    try:
+        payload = _parse_structured_object_from_raw(
+            raw_content=raw_content,
+            policy_type=policy_type,
+        )
+    except ValueError:
+        return {"text": raw_content.strip()}
+
+    text_value = payload.get("text")
+    if not isinstance(text_value, str):
+        raise ValueError(f"{policy_type} content.text must be a string.")
+
+    normalized_payload = dict(payload)
+    normalized_payload["text"] = text_value.strip()
+    return normalized_payload
 
 
 def _extract_layer2_references(

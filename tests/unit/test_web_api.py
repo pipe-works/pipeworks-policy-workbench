@@ -16,6 +16,7 @@ from policy_workbench.policy_authoring import PolicySaveResult
 from policy_workbench.web_app import create_web_app
 from policy_workbench.web_models import (
     PolicyActivationScopeResponse,
+    PolicyActivationSetResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyObjectSummaryResponse,
@@ -532,6 +533,20 @@ def test_api_first_activation_and_publish_proxy_endpoints(tmp_path: Path, monkey
             artifact={"artifact_hash": "def", "artifact_path": "/tmp/export.json"},
         ),
     )
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_activation_set_payload",
+        lambda **_kwargs: PolicyActivationSetResponse(
+            world_id="pipeworks_web",
+            client_profile="mobile",
+            policy_id="descriptor_layer:image.descriptors:id_card",
+            variant="v1-w-pipeworks-web-cp-mobile",
+            activated_at="2026-03-15T12:00:00Z",
+            activated_by="tester",
+            rollback_of_activation_id=None,
+            audit_event_id=401,
+        ),
+    )
 
     activation_response = client.get(
         "/api/policy-activations-live",
@@ -541,6 +556,21 @@ def test_api_first_activation_and_publish_proxy_endpoints(tmp_path: Path, monkey
     activation_payload = activation_response.json()
     assert activation_payload["world_id"] == "pipeworks_web"
     assert activation_payload["items"][0]["variant"] == "v1"
+
+    activation_set_response = client.post(
+        "/api/policy-activation-set",
+        json={
+            "world_id": "pipeworks_web",
+            "client_profile": "mobile",
+            "policy_id": "descriptor_layer:image.descriptors:id_card",
+            "variant": "v1-w-pipeworks-web-cp-mobile",
+            "session_id": "s1",
+        },
+    )
+    assert activation_set_response.status_code == 200
+    activation_set_payload = activation_set_response.json()
+    assert activation_set_payload["world_id"] == "pipeworks_web"
+    assert activation_set_payload["audit_event_id"] == 401
 
     publish_response = client.get(
         "/api/policy-publish-runs/7",
@@ -620,6 +650,22 @@ def test_api_first_proxy_endpoints_map_service_errors_to_http_400(
 
     monkeypatch.setattr(
         web_app_module,
+        "build_policy_activation_set_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("activation set failure")),
+    )
+    activation_set_response = client.post(
+        "/api/policy-activation-set",
+        json={
+            "world_id": "pipeworks_web",
+            "policy_id": "descriptor_layer:image.descriptors:id_card",
+            "variant": "v1",
+        },
+    )
+    assert activation_set_response.status_code == 400
+    assert "activation set failure" in activation_set_response.json()["detail"]
+
+    monkeypatch.setattr(
+        web_app_module,
         "build_policy_publish_run_payload",
         lambda **_kwargs: (_ for _ in ()).throw(ValueError("publish failure")),
     )
@@ -683,6 +729,17 @@ def test_api_first_proxy_endpoints_return_503_when_runtime_mode_unavailable(
     )
     assert activation_response.status_code == 503
     assert "runtime mode unavailable" in activation_response.json()["detail"]
+
+    activation_set_response = client.post(
+        "/api/policy-activation-set",
+        json={
+            "world_id": "pipeworks_web",
+            "policy_id": "descriptor_layer:image.descriptors:id_card",
+            "variant": "v1",
+        },
+    )
+    assert activation_set_response.status_code == 503
+    assert "runtime mode unavailable" in activation_set_response.json()["detail"]
 
     publish_response = client.get("/api/policy-publish-runs/1")
     assert publish_response.status_code == 503

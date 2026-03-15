@@ -164,23 +164,43 @@
         class="code-editor editor-area"
         spellcheck="false"
         autocomplete="off"
+        readonly
         placeholder="Select a policy object from inventory to begin editing."
       ></textarea>
 
       <div class="editor-actions">
+        <button id="btn-edit-file" class="btn btn--secondary" type="button">Edit Policy</button>
+        <button id="btn-close-file" class="btn btn--secondary" type="button">Close Editor</button>
         <button id="btn-save-file" class="btn btn--primary" type="button">Save Policy</button>
         <button id="btn-reload-file" class="btn btn--secondary" type="button">Reload File</button>
       </div>
 
       <section class="activation-save-summary" aria-label="Activation save summary">
-        <label class="activation-toggle" for="activation-enable">
-          <input id="activation-enable" type="checkbox" />
-          <span>Activate after save</span>
-        </label>
-        <span id="activation-save-summary" class="meta-line">Activation after save: Off · Scope: none selected</span>
-        <button id="btn-open-activation-tab" class="btn btn--secondary btn--sm" type="button">
-          Edit Activation Scope
-        </button>
+        <div class="activation-save-summary__row activation-save-summary__row--scope">
+          <label class="activation-toggle" for="save-scope-mode">
+            <span>Save to</span>
+            <select id="save-scope-mode" class="select input--compact" aria-label="Policy save scope mode">
+              <option value="world_only">Current world only (recommended)</option>
+              <option value="global_update">Shared variant (cross-world)</option>
+            </select>
+          </label>
+        </div>
+        <div class="activation-save-summary__row activation-save-summary__row--toggles">
+          <label id="save-rollout-all-worlds-row" class="activation-toggle" for="save-rollout-all-worlds">
+            <input id="save-rollout-all-worlds" type="checkbox" />
+            <span>Also apply to all accessible worlds</span>
+          </label>
+          <label id="activation-enable-row" class="activation-toggle" for="activation-enable">
+            <input id="activation-enable" type="checkbox" />
+            <span>Activate in selected world after save</span>
+          </label>
+        </div>
+        <div class="activation-save-summary__row activation-save-summary__row--meta">
+          <span id="activation-save-summary" class="meta-line">Choose a world to see exactly what Save will do.</span>
+          <button id="btn-open-activation-tab" class="btn btn--secondary btn--sm" type="button">
+            Choose World Scope
+          </button>
+        </div>
       </section>
     </section>
 

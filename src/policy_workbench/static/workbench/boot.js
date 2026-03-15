@@ -17,7 +17,13 @@ import {
   updateActivationSaveSummary,
   updateActivationScopeLabel,
 } from "./inventory.js";
-import { reloadCurrentFile, saveCurrentFile } from "./editor_actions.js";
+import {
+  closeEditorForCurrentSelection,
+  handleEditorInputChange,
+  openEditorForCurrentSelection,
+  reloadCurrentFile,
+  saveCurrentFile,
+} from "./editor_actions.js";
 import {
   handleRuntimeLoginButtonAction,
   loginRuntimeSession,
@@ -165,11 +171,26 @@ function wireActivationEvents() {
   if (dom.activationEnable) {
     dom.activationEnable.addEventListener("change", updateActivationSaveSummary);
   }
+  if (dom.saveScopeMode) {
+    dom.saveScopeMode.addEventListener("change", updateActivationSaveSummary);
+  }
+  if (dom.saveRolloutAllWorlds) {
+    dom.saveRolloutAllWorlds.addEventListener("change", updateActivationSaveSummary);
+  }
 }
 
 function wireActionEvents() {
+  if (dom.btnEditFile) {
+    dom.btnEditFile.addEventListener("click", openEditorForCurrentSelection);
+  }
+  if (dom.btnCloseFile) {
+    dom.btnCloseFile.addEventListener("click", closeEditorForCurrentSelection);
+  }
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
+  if (dom.fileEditor) {
+    dom.fileEditor.addEventListener("input", handleEditorInputChange);
+  }
   if (dom.btnOpenActivationTab) {
     dom.btnOpenActivationTab.addEventListener("click", () => {
       setActiveMainTab("activation");

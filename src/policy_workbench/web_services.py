@@ -22,6 +22,7 @@ from .policy_authoring import selector_from_relative_path
 from .web_models import (
     HashCanonicalResponse,
     PolicyActivationScopeResponse,
+    PolicyActivationSetResponse,
     PolicyInventoryResponse,
     PolicyObjectDetailResponse,
     PolicyPublishRunProxyResponse,
@@ -251,6 +252,30 @@ def build_policy_activation_scope_payload(
     )
 
 
+def build_policy_activation_set_payload(
+    *,
+    world_id: str,
+    client_profile: str | None,
+    policy_id: str,
+    variant: str,
+    activated_by: str | None,
+    session_id_override: str | None,
+    base_url_override: str | None = None,
+) -> PolicyActivationSetResponse:
+    """Set one activation pointer through mud-server canonical policy activation API."""
+    return web_policy_proxy_services.build_policy_activation_set_payload(
+        world_id=world_id,
+        client_profile=client_profile,
+        policy_id=policy_id,
+        variant=variant,
+        activated_by=activated_by,
+        session_id_override=session_id_override,
+        base_url_override=base_url_override,
+        resolve_runtime_config=_resolve_mud_api_runtime_config,
+        fetch_mud_api_json=_fetch_mud_api_json,
+    )
+
+
 def build_policy_publish_run_payload(
     *,
     publish_run_id: int,
@@ -383,6 +408,7 @@ def _fetch_mud_api_json(
     method: str,
     path: str,
     query_params: dict[str, str],
+    json_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """Issue one mud-server API request and return parsed JSON object payload."""
     # Wrapper preserved for backward compatibility while the shared transport
@@ -392,6 +418,7 @@ def _fetch_mud_api_json(
         method=method,
         path=path,
         query_params=query_params,
+        json_payload=json_payload,
         opener=urlopen,
     )
 

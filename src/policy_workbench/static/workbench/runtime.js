@@ -226,6 +226,16 @@ export function applyRuntimeModeControls() {
 
 export function setServerFeatureAvailability() {
   const serverAuthorized = isServerAuthorized();
+  const hasSelectedPolicy = Boolean(state.selectedPolicyRecord);
+  const hasAuthorableSelection = Boolean(
+    hasSelectedPolicy && state.selectedArtifact?.is_authorable
+  );
+  const scopeMode = String(dom.saveScopeMode?.value || "world_only").trim();
+  const isWorldOnlyMode = scopeMode !== "global_update";
+  const isEditing = Boolean(state.editorIsEditing);
+  const editorValue = String(dom.fileEditor?.value || "");
+  const baseValue = String(state.editorBaseContent || "");
+  const hasDirtyEditorChanges = isEditing && editorValue !== baseValue;
 
   if (dom.btnRefreshInventory) {
     dom.btnRefreshInventory.disabled = !serverAuthorized;
@@ -246,17 +256,39 @@ export function setServerFeatureAvailability() {
     dom.btnRefreshActivation.disabled = !serverAuthorized;
   }
   if (dom.activationEnable) {
-    dom.activationEnable.disabled = !serverAuthorized;
+    dom.activationEnable.disabled = !serverAuthorized || isWorldOnlyMode;
     if (!serverAuthorized) {
       dom.activationEnable.checked = false;
+    } else if (isWorldOnlyMode) {
+      dom.activationEnable.checked = true;
+    }
+  }
+  if (dom.saveScopeMode) {
+    dom.saveScopeMode.disabled = !serverAuthorized;
+  }
+  if (dom.saveRolloutAllWorlds) {
+    const scopeMode = String(dom.saveScopeMode?.value || "world_only").trim();
+    const hasSelectedWorld = Boolean((dom.inventoryWorld?.value || state.selectedWorldId || "").trim());
+    dom.saveRolloutAllWorlds.disabled = !serverAuthorized || scopeMode !== "world_only" || !hasSelectedWorld;
+    if (dom.saveRolloutAllWorlds.disabled) {
+      dom.saveRolloutAllWorlds.checked = false;
     }
   }
   if (dom.activationClientProfile) {
     dom.activationClientProfile.disabled = !serverAuthorized;
   }
 
-  const canSave = serverAuthorized
-    && Boolean(state.selectedPolicyRecord && state.selectedArtifact?.is_authorable);
+  if (dom.btnEditFile) {
+    dom.btnEditFile.disabled = !(serverAuthorized && hasAuthorableSelection && !isEditing);
+  }
+  if (dom.btnCloseFile) {
+    dom.btnCloseFile.disabled = !(hasAuthorableSelection && isEditing);
+  }
+  if (dom.btnReloadFile) {
+    dom.btnReloadFile.disabled = !(serverAuthorized && hasSelectedPolicy);
+  }
+
+  const canSave = serverAuthorized && hasAuthorableSelection && hasDirtyEditorChanges;
   if (dom.btnSaveFile) {
     dom.btnSaveFile.disabled = !canSave;
   }
