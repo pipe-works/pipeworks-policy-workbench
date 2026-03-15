@@ -25,8 +25,12 @@ import {
   closeEditorForCurrentSelection,
   handleEditorInputChange,
   openEditorForCurrentSelection,
+  refreshEditorLintStatus,
+  refreshEditorLineNumbers,
+  resetEditorValidationDetails,
   reloadCurrentFile,
   saveCurrentFile,
+  validateCurrentFile,
 } from "./editor_actions.js";
 import {
   handleRuntimeLoginButtonAction,
@@ -239,11 +243,23 @@ function wireActionEvents() {
   if (dom.btnCloseFile) {
     dom.btnCloseFile.addEventListener("click", closeEditorForCurrentSelection);
   }
+  if (dom.btnValidateFile) {
+    dom.btnValidateFile.addEventListener("click", () => {
+      void validateCurrentFile();
+    });
+  }
   dom.btnSaveFile.addEventListener("click", saveCurrentFile);
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
   if (dom.fileEditor) {
     dom.fileEditor.addEventListener("input", handleEditorInputChange);
+    dom.fileEditor.addEventListener("scroll", refreshEditorLineNumbers);
   }
+  window.addEventListener("resize", refreshEditorLineNumbers);
+  window.addEventListener("pw:editor-content-updated", () => {
+    refreshEditorLintStatus();
+    refreshEditorLineNumbers();
+    resetEditorValidationDetails();
+  });
   if (dom.btnOpenActivationTab) {
     dom.btnOpenActivationTab.addEventListener("click", () => {
       setActiveMainTab("activation");
@@ -280,5 +296,8 @@ export async function initializeWorkbench() {
   wireInventoryEvents();
   wireActivationEvents();
   wireActionEvents();
+  refreshEditorLintStatus();
+  refreshEditorLineNumbers();
+  resetEditorValidationDetails();
   await bootstrapInitialData();
 }

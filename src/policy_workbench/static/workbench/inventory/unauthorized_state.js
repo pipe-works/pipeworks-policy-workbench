@@ -11,6 +11,7 @@ export function renderUnauthorizedServerState(runtimeAuth = null) {
   state.editorIsEditing = false;
   state.editorBaseContent = "";
   setEditorReadOnlyMode(true);
+  window.dispatchEvent(new Event("pw:editor-content-updated"));
   renderPolicyInventory([]);
   clearCurrentObjectPanel();
   const status = runtimeAuth?.status || runtimeAuthStatus();

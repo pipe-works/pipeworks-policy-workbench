@@ -433,6 +433,43 @@
   font-size: var(--text-sm);
 }
 
+.editor-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 1px solid var(--col-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 18rem;
+}
+
+.editor-line-numbers {
+  margin: 0;
+  padding: 0 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--col-text-muted);
+  background: color-mix(in srgb, var(--col-surface-2) 68%, var(--col-bg));
+  border-right: 1px solid var(--col-border);
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-shell .editor-area {
+  border: 0;
+  border-radius: 0;
+  min-height: 18rem;
+  margin: 0;
+  white-space: pre;
+  overflow: auto;
+  line-height: 1.6;
+}
+
 .current-object-shell {
   display: flex;
   flex-direction: column;
@@ -476,6 +513,56 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
+}
+
+.editor-lint-status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.editor-lint-status--muted {
+  color: var(--col-text-muted);
+}
+
+.editor-lint-status--ok {
+  color: var(--col-ok);
+}
+
+.editor-lint-status--warn {
+  color: var(--col-warn);
+}
+
+.editor-lint-status--err {
+  color: var(--col-err);
+}
+
+.editor-validation-details {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  border: 1px solid var(--col-border);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  background: color-mix(in srgb, var(--col-surface-2) 55%, var(--col-bg));
+}
+
+.editor-validation-details--muted {
+  color: var(--col-text-muted);
+}
+
+.editor-validation-details--ok {
+  color: var(--col-ok);
+  border-color: color-mix(in srgb, var(--col-ok) 40%, var(--col-border));
+}
+
+.editor-validation-details--warn {
+  color: var(--col-warn);
+  border-color: color-mix(in srgb, var(--col-warn) 40%, var(--col-border));
+}
+
+.editor-validation-details--err {
+  color: var(--col-err);
+  border-color: color-mix(in srgb, var(--col-err) 40%, var(--col-border));
 }
 
 .activation-save-summary {

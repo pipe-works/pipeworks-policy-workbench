@@ -20,6 +20,7 @@ from .policy_authoring import (
     PolicySelector,
     resolve_runtime_config,
     save_policy_variant_from_raw_content,
+    validate_policy_variant_from_raw_content,
 )
 from .runtime_mode import (
     RuntimeModeUnavailableError,
@@ -37,6 +38,8 @@ from .web_models import (
     PolicySaveRequest,
     PolicySaveResponse,
     PolicyTypeOptionsResponse,
+    PolicyValidateRequest,
+    PolicyValidateResponse,
     RuntimeAuthResponse,
     RuntimeLoginRequest,
     RuntimeLoginResponse,
@@ -637,6 +640,50 @@ def create_web_app(
                 "and /api/policies/{policy_id} for canonical reads."
             ),
         )
+
+    @app.post("/api/policy-validate", response_model=PolicyValidateResponse)
+    async def api_policy_validate(
+        request: Request,
+        payload: PolicyValidateRequest,
+    ) -> PolicyValidateResponse:
+        """Validate one authorable policy object without writing/upserting it."""
+
+        selector = PolicySelector(
+            policy_type=payload.policy_type,
+            namespace=payload.namespace,
+            policy_key=payload.policy_key,
+            variant=payload.variant,
+        )
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=payload.session_id,
+        )
+
+        def _build_validate_response(server_api_url: str) -> PolicyValidateResponse:
+            runtime_config = resolve_runtime_config(
+                session_id_override=resolved_session_id,
+                base_url_override=server_api_url,
+            )
+            result = validate_policy_variant_from_raw_content(
+                selector=selector,
+                raw_content=payload.raw_content,
+                schema_version=payload.schema_version,
+                status=payload.status,
+                actor=payload.actor,
+                runtime_config=runtime_config,
+            )
+            return PolicyValidateResponse(
+                policy_id=result.policy_id,
+                variant=result.variant,
+                policy_version=result.policy_version,
+                validation_run_id=result.validation_run_id,
+                is_valid=True,
+            )
+
+        return _run_server_api_route(_build_validate_response)
 
     @app.post("/api/policy-save", response_model=PolicySaveResponse)
     async def api_policy_save(request: Request, payload: PolicySaveRequest) -> PolicySaveResponse:

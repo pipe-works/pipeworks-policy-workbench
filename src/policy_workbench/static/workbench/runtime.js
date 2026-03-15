@@ -302,6 +302,9 @@ export function setServerFeatureAvailability() {
   if (dom.btnCloseFile) {
     dom.btnCloseFile.disabled = !(hasAuthorableSelection && isEditing);
   }
+  if (dom.btnValidateFile) {
+    dom.btnValidateFile.disabled = !(serverAuthorized && hasAuthorableSelection);
+  }
   if (dom.btnReloadFile) {
     dom.btnReloadFile.disabled = !(serverAuthorized && hasSelectedPolicy);
   }

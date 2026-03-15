@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from policy_workbench import web_app as web_app_module
 from policy_workbench import web_services
-from policy_workbench.policy_authoring import PolicySaveResult
+from policy_workbench.policy_authoring import PolicySaveResult, PolicyValidateResult
 from policy_workbench.web_app import create_web_app
 from policy_workbench.web_models import (
     PolicyActivationScopeResponse,
@@ -894,6 +894,53 @@ def test_policy_save_endpoint_runs_phase2_api_only_flow(
     assert payload["validation_run_id"] == 55
     assert payload["activated"] is True
     assert payload["activation_audit_event_id"] == 901
+
+
+def test_policy_validate_endpoint_runs_phase2_validate_only_flow(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Policy-validate endpoint should call validate-only flow and return normalized payload."""
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "resolve_runtime_config",
+        lambda session_id_override=None, base_url_override=None: object(),
+    )
+    monkeypatch.setattr(
+        web_app_module,
+        "validate_policy_variant_from_raw_content",
+        lambda **kwargs: PolicyValidateResult(
+            policy_id="species_block:image.blocks.species:goblin",
+            variant="v1",
+            policy_version=4,
+            validation_run_id=77,
+        ),
+    )
+
+    response = client.post(
+        "/api/policy-validate",
+        json={
+            "policy_type": "species_block",
+            "namespace": "image.blocks.species",
+            "policy_key": "goblin",
+            "variant": "v1",
+            "raw_content": '{"text":"Goblin body text."}',
+            "schema_version": "1.0",
+            "status": "draft",
+            "actor": "tester",
+            "session_id": "s1",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["policy_id"] == "species_block:image.blocks.species:goblin"
+    assert payload["variant"] == "v1"
+    assert payload["policy_version"] == 4
+    assert payload["validation_run_id"] == 77
+    assert payload["is_valid"] is True
 
 
 def test_policy_save_endpoint_returns_400_when_runtime_config_fails(
