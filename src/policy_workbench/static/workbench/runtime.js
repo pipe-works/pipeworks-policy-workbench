@@ -20,15 +20,8 @@ export function setRuntimeSessionId(sessionId) {
 }
 
 export function sessionScopedUrl(urlPath) {
-  const sessionId = (state.runtimeSessionId || "").trim();
-  if (!sessionId) {
-    return urlPath;
-  }
-
-  const url = new URL(urlPath, window.location.origin);
-  url.searchParams.set("session_id", sessionId);
-  const queryText = url.searchParams.toString();
-  return queryText ? `${url.pathname}?${queryText}` : url.pathname;
+  // Runtime auth now uses secure HttpOnly cookies; keep request URLs sessionless.
+  return urlPath;
 }
 
 function activeRuntimeModeOption() {
@@ -65,7 +58,7 @@ export function isServerAuthorized() {
 }
 
 export function isRuntimeSessionAuthorized() {
-  return isServerAuthorized() && Boolean((state.runtimeSessionId || "").trim());
+  return isServerAuthorized();
 }
 
 function setRuntimeModeBadge() {
@@ -276,6 +269,31 @@ export function setServerFeatureAvailability() {
   }
   if (dom.activationClientProfile) {
     dom.activationClientProfile.disabled = !serverAuthorized;
+  }
+  const hasActivationRows = Array.isArray(state.activationRows) && state.activationRows.length > 0;
+  if (dom.activationFilterPolicyType) {
+    dom.activationFilterPolicyType.disabled = !serverAuthorized || !hasActivationRows;
+  }
+  if (dom.activationFilterNamespace) {
+    dom.activationFilterNamespace.disabled = !serverAuthorized || !hasActivationRows;
+  }
+  if (dom.activationFilterStatus) {
+    dom.activationFilterStatus.disabled = !serverAuthorized || !hasActivationRows;
+  }
+  if (dom.activationFilterSearch) {
+    dom.activationFilterSearch.disabled = !serverAuthorized || !hasActivationRows;
+  }
+  const hasSelectedActivation = Boolean(
+    String(state.selectedActivationSelector || "").trim() &&
+      (state.activationRows || []).some(
+        (row) => String(row?.selector || "").trim() === String(state.selectedActivationSelector || "").trim()
+      )
+  );
+  if (dom.activationSetStatus) {
+    dom.activationSetStatus.disabled = !serverAuthorized || !hasSelectedActivation;
+  }
+  if (dom.btnActivationApplyStatus) {
+    dom.btnActivationApplyStatus.disabled = !serverAuthorized || !hasSelectedActivation;
   }
 
   if (dom.btnEditFile) {

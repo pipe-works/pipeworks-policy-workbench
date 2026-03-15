@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from secrets import token_urlsafe
+from threading import RLock
 from typing import NoReturn, TypeVar
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -36,6 +40,7 @@ from .web_models import (
     RuntimeAuthResponse,
     RuntimeLoginRequest,
     RuntimeLoginResponse,
+    RuntimeLogoutResponse,
     RuntimeModeOptionResponse,
     RuntimeModeRequest,
     RuntimeModeResponse,
@@ -57,6 +62,20 @@ _HERE = Path(__file__).resolve().parent
 _TEMPLATES_DIR = _HERE / "templates"
 _STATIC_DIR = _HERE / "static"
 _ResponseT = TypeVar("_ResponseT")
+_RUNTIME_SESSION_COOKIE_NAME = "pw_policy_runtime_session"
+_RUNTIME_SESSION_MAX_AGE_SECONDS = 12 * 60 * 60
+
+
+@dataclass(slots=True)
+class _RuntimeBrowserSession:
+    """Server-side runtime session binding for browser refresh persistence."""
+
+    session_id: str
+    mode_key: str
+    server_url: str
+    available_worlds: list[dict[str, object]]
+    created_at_epoch: int
+    updated_at_epoch: int
 
 
 def create_web_app(
@@ -70,6 +89,133 @@ def create_web_app(
 
     templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    runtime_browser_sessions: dict[str, _RuntimeBrowserSession] = {}
+    runtime_browser_sessions_lock = RLock()
+
+    def _normalize_server_url_for_binding(value: str | None) -> str:
+        """Normalize runtime server URLs for stable session binding comparisons."""
+        return str(value or "").strip().rstrip("/")
+
+    def _sanitize_available_worlds(
+        world_rows: list[dict[str, object]] | None,
+    ) -> list[dict[str, object]]:
+        """Retain only stable world row dictionaries with non-empty IDs."""
+        if not isinstance(world_rows, list):
+            return []
+        sanitized: list[dict[str, object]] = []
+        for row in world_rows:
+            if not isinstance(row, dict):
+                continue
+            world_id = str(row.get("id") or "").strip()
+            if not world_id:
+                continue
+            normalized_row = dict(row)
+            normalized_row["id"] = world_id
+            world_name = str(row.get("name") or "").strip()
+            if world_name:
+                normalized_row["name"] = world_name
+            sanitized.append(normalized_row)
+        return sanitized
+
+    def _runtime_cookie_secure(request: Request) -> bool:
+        """Return whether runtime session cookie should use the Secure attribute."""
+        if request.url.scheme == "https":
+            return True
+        hostname = str(request.url.hostname or "").strip().lower()
+        return hostname not in {"localhost", "127.0.0.1", "::1"}
+
+    def _set_runtime_session_cookie(response: Response, *, request: Request, token: str) -> None:
+        """Set hardened browser cookie for one runtime browser-session token."""
+        response.set_cookie(
+            key=_RUNTIME_SESSION_COOKIE_NAME,
+            value=token,
+            max_age=_RUNTIME_SESSION_MAX_AGE_SECONDS,
+            httponly=True,
+            secure=_runtime_cookie_secure(request),
+            samesite="strict",
+            path="/",
+        )
+
+    def _clear_runtime_session_cookie(response: Response, *, request: Request) -> None:
+        """Delete runtime browser-session cookie from browser storage."""
+        response.delete_cookie(
+            key=_RUNTIME_SESSION_COOKIE_NAME,
+            httponly=True,
+            secure=_runtime_cookie_secure(request),
+            samesite="strict",
+            path="/",
+        )
+
+    def _purge_expired_runtime_browser_sessions(*, now_epoch: int | None = None) -> None:
+        """Evict expired runtime browser-session records from in-memory store."""
+        now = int(now_epoch if now_epoch is not None else time.time())
+        with runtime_browser_sessions_lock:
+            expired_tokens = [
+                token
+                for token, record in runtime_browser_sessions.items()
+                if now - record.updated_at_epoch >= _RUNTIME_SESSION_MAX_AGE_SECONDS
+            ]
+            for token in expired_tokens:
+                runtime_browser_sessions.pop(token, None)
+
+    def _store_runtime_browser_session(
+        *,
+        mode_key: str,
+        server_url: str | None,
+        session_id: str,
+        available_worlds: list[dict[str, object]] | None,
+    ) -> str:
+        """Create one runtime browser-session record and return opaque token."""
+        now = int(time.time())
+        token = token_urlsafe(32)
+        record = _RuntimeBrowserSession(
+            session_id=session_id,
+            mode_key=mode_key,
+            server_url=_normalize_server_url_for_binding(server_url),
+            available_worlds=_sanitize_available_worlds(available_worlds),
+            created_at_epoch=now,
+            updated_at_epoch=now,
+        )
+        with runtime_browser_sessions_lock:
+            runtime_browser_sessions[token] = record
+        _purge_expired_runtime_browser_sessions(now_epoch=now)
+        return token
+
+    def _pop_runtime_browser_session_by_token(token: str | None) -> _RuntimeBrowserSession | None:
+        """Remove one runtime browser-session record by token and return it."""
+        normalized_token = str(token or "").strip()
+        if not normalized_token:
+            return None
+        with runtime_browser_sessions_lock:
+            return runtime_browser_sessions.pop(normalized_token, None)
+
+    def _resolve_runtime_browser_session(
+        *,
+        request: Request,
+        mode_key: str,
+        server_url: str | None,
+    ) -> tuple[str | None, list[dict[str, object]], str | None]:
+        """Resolve runtime browser-session for request cookie and active mode/url."""
+        _purge_expired_runtime_browser_sessions()
+        token = str(request.cookies.get(_RUNTIME_SESSION_COOKIE_NAME, "")).strip()
+        if not token:
+            return (None, [], None)
+        with runtime_browser_sessions_lock:
+            record = runtime_browser_sessions.get(token)
+            if record is None:
+                return (None, [], token)
+            if (
+                record.mode_key != mode_key
+                or record.server_url != _normalize_server_url_for_binding(server_url)
+            ):
+                runtime_browser_sessions.pop(token, None)
+                return (None, [], token)
+            record.updated_at_epoch = int(time.time())
+            return (
+                record.session_id,
+                [dict(row) for row in record.available_worlds],
+                token,
+            )
 
     def _status_code_for_mud_api_error(detail: str) -> int:
         """Map mud-server auth/permission failures to stable HTTP status codes."""
@@ -137,6 +283,23 @@ def create_web_app(
             ],
         )
 
+    def _resolve_request_session_id(
+        *,
+        request: Request,
+        mode_key: str,
+        server_url: str | None,
+        explicit_session_id: str | None,
+    ) -> tuple[str | None, list[dict[str, object]], str | None]:
+        """Resolve runtime session from explicit value first, then secure browser cookie."""
+        normalized_explicit = str(explicit_session_id or "").strip()
+        if normalized_explicit:
+            return (normalized_explicit, [], None)
+        return _resolve_runtime_browser_session(
+            request=request,
+            mode_key=mode_key,
+            server_url=server_url,
+        )
+
     @app.get("/", response_class=HTMLResponse)
     async def index(request: Request) -> HTMLResponse:
         """Render the single-page policy workbench shell."""
@@ -169,23 +332,41 @@ def create_web_app(
 
     @app.get("/api/runtime-auth", response_model=RuntimeAuthResponse)
     async def api_runtime_auth(
+        request: Request,
+        response: Response,
         session_id: str | None = Query(default=None),
     ) -> RuntimeAuthResponse:
         """Return explicit runtime auth/access status for server-backed operations."""
         state = get_runtime_mode()
-        return build_runtime_auth_payload(
+        resolved_session_id, cookie_worlds, cookie_token = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
+        payload = build_runtime_auth_payload(
             mode_key=state.mode_key,
             source_kind=state.source_kind,
             active_server_url=state.active_server_url,
-            session_id_override=session_id,
+            session_id_override=resolved_session_id,
             base_url_override=state.active_server_url,
         )
+        if cookie_token and payload.status in {"missing_session", "unauthenticated"}:
+            _pop_runtime_browser_session_by_token(cookie_token)
+            _clear_runtime_session_cookie(response, request=request)
+        if payload.access_granted and cookie_worlds:
+            payload = payload.model_copy(update={"available_worlds": cookie_worlds})
+        return payload
 
     @app.post("/api/runtime-login", response_model=RuntimeLoginResponse)
-    async def api_runtime_login(payload: RuntimeLoginRequest) -> RuntimeLoginResponse:
+    async def api_runtime_login(
+        payload: RuntimeLoginRequest,
+        request: Request,
+        response: Response,
+    ) -> RuntimeLoginResponse:
         """Authenticate to active mud-server profile and return session bootstrap data."""
         state = get_runtime_mode()
-        return _run_mud_service(
+        service_payload = _run_mud_service(
             lambda: build_runtime_login_payload(
                 mode_key=state.mode_key,
                 source_kind=state.source_kind,
@@ -195,34 +376,78 @@ def create_web_app(
                 base_url_override=state.active_server_url,
             )
         )
+        normalized_worlds = _sanitize_available_worlds(service_payload.available_worlds)
+        if service_payload.success and service_payload.session_id:
+            token = _store_runtime_browser_session(
+                mode_key=state.mode_key,
+                server_url=state.active_server_url,
+                session_id=service_payload.session_id,
+                available_worlds=normalized_worlds,
+            )
+            _set_runtime_session_cookie(response, request=request, token=token)
+        else:
+            stale_token = str(request.cookies.get(_RUNTIME_SESSION_COOKIE_NAME, "")).strip()
+            if stale_token:
+                _pop_runtime_browser_session_by_token(stale_token)
+            _clear_runtime_session_cookie(response, request=request)
+        return RuntimeLoginResponse(
+            success=service_payload.success,
+            session_id=None,
+            role=service_payload.role,
+            available_worlds=normalized_worlds,
+            detail=service_payload.detail,
+        )
+
+    @app.post("/api/runtime-logout", response_model=RuntimeLogoutResponse)
+    async def api_runtime_logout(request: Request, response: Response) -> RuntimeLogoutResponse:
+        """Clear active browser-bound runtime session token."""
+        session_token = str(request.cookies.get(_RUNTIME_SESSION_COOKIE_NAME, "")).strip()
+        if session_token:
+            _pop_runtime_browser_session_by_token(session_token)
+        _clear_runtime_session_cookie(response, request=request)
+        return RuntimeLogoutResponse(success=True, detail="Runtime session cleared.")
 
     @app.get("/api/policy-types", response_model=PolicyTypeOptionsResponse)
     async def api_policy_types(
+        request: Request,
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy-type options for inventory filtering."""
         state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_mud_service(
             lambda: build_policy_type_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=state.active_server_url,
             )
         )
 
     @app.get("/api/policy-namespaces", response_model=PolicyTypeOptionsResponse)
     async def api_policy_namespaces(
+        request: Request,
         policy_type: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy namespace options for inventory filtering."""
         state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_mud_service(
             lambda: build_policy_namespace_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 policy_type=policy_type,
                 base_url_override=state.active_server_url,
             )
@@ -230,21 +455,29 @@ def create_web_app(
 
     @app.get("/api/policy-statuses", response_model=PolicyTypeOptionsResponse)
     async def api_policy_statuses(
+        request: Request,
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy status options for inventory filtering."""
         state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_mud_service(
             lambda: build_policy_status_options_payload(
                 source_kind=state.source_kind,
                 active_server_url=state.active_server_url,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=state.active_server_url,
             )
         )
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
+        request: Request,
         policy_type: str | None = Query(default=None),
         namespace: str | None = Query(default=None),
         status: str | None = Query(default=None),
@@ -252,56 +485,86 @@ def create_web_app(
     ) -> PolicyInventoryResponse:
         """Return API-first policy inventory list from mud-server canonical API."""
 
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_server_api_route(
             lambda server_api_url: build_policy_inventory_payload(
                 policy_type=policy_type,
                 namespace=namespace,
                 status=status,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
         )
 
     @app.get("/api/policies/{policy_id}", response_model=PolicyObjectDetailResponse)
     async def api_policy_detail(
+        request: Request,
         policy_id: str,
         variant: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
     ) -> PolicyObjectDetailResponse:
         """Return one policy object detail payload from mud-server canonical API."""
 
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_server_api_route(
             lambda server_api_url: build_policy_object_detail_payload(
                 policy_id=policy_id,
                 variant=variant,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
         )
 
     @app.get("/api/policy-activations-live", response_model=PolicyActivationScopeResponse)
     async def api_policy_activations_live(
+        request: Request,
         scope: str = Query(min_length=1),
         effective: bool = Query(default=True),
         session_id: str | None = Query(default=None),
     ) -> PolicyActivationScopeResponse:
         """Return scoped activation mappings from mud-server canonical API."""
 
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_server_api_route(
             lambda server_api_url: build_policy_activation_scope_payload(
                 scope=scope,
                 effective=effective,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
         )
 
     @app.post("/api/policy-activation-set", response_model=PolicyActivationSetResponse)
     async def api_policy_activation_set(
+        request: Request,
         payload: PolicyActivationSetRequest,
     ) -> PolicyActivationSetResponse:
         """Set one activation pointer through mud-server canonical policy activation API."""
-
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=payload.session_id,
+        )
         return _run_server_api_route(
             lambda server_api_url: build_policy_activation_set_payload(
                 world_id=payload.world_id,
@@ -309,7 +572,7 @@ def create_web_app(
                 policy_id=payload.policy_id,
                 variant=payload.variant,
                 activated_by=payload.activated_by,
-                session_id_override=payload.session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
         )
@@ -319,15 +582,22 @@ def create_web_app(
         response_model=PolicyPublishRunProxyResponse,
     )
     async def api_policy_publish_run(
+        request: Request,
         publish_run_id: int,
         session_id: str | None = Query(default=None),
     ) -> PolicyPublishRunProxyResponse:
         """Return one publish run payload from mud-server canonical publish API."""
-
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=session_id,
+        )
         return _run_server_api_route(
             lambda server_api_url: build_policy_publish_run_payload(
                 publish_run_id=publish_run_id,
-                session_id_override=session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
         )
@@ -369,7 +639,7 @@ def create_web_app(
         )
 
     @app.post("/api/policy-save", response_model=PolicySaveResponse)
-    async def api_policy_save(payload: PolicySaveRequest) -> PolicySaveResponse:
+    async def api_policy_save(request: Request, payload: PolicySaveRequest) -> PolicySaveResponse:
         """Save one authorable policy object through mud-server APIs.
 
         Flow:
@@ -385,13 +655,20 @@ def create_web_app(
             policy_key=payload.policy_key,
             variant=payload.variant,
         )
+        state = get_runtime_mode()
+        resolved_session_id, _, _ = _resolve_request_session_id(
+            request=request,
+            mode_key=state.mode_key,
+            server_url=state.active_server_url,
+            explicit_session_id=payload.session_id,
+        )
 
         def _build_save_response(server_api_url: str) -> PolicySaveResponse:
             # Runtime config resolution happens per request so a stale/missing
             # session cannot be reused across save calls after mode/session
             # changes in the UI.
             runtime_config = resolve_runtime_config(
-                session_id_override=payload.session_id,
+                session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
             )
             result = save_policy_variant_from_raw_content(

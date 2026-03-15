@@ -59,7 +59,11 @@
   </div>
 </section>
 
-<main id="workbench-grid" class="app-grid workbench-grid" aria-label="Policy Workbench">
+<main
+  id="workbench-grid"
+  class="app-grid workbench-grid workbench-grid--right-collapsed"
+  aria-label="Policy Workbench"
+>
   <section class="panel panel--centre" aria-label="Raw File Editor">
     <div class="main-tabs" role="tablist" aria-label="Workbench main sections">
       <button
@@ -219,26 +223,95 @@
           </div>
           <span id="activation-world-display" class="badge badge--muted">World: none selected</span>
         </div>
-        <div class="activation-fields">
-          <label class="inventory-filter">
-            <span class="inventory-filter__label">Client Profile (optional)</span>
-            <input id="activation-client-profile" class="input input--compact" type="text" placeholder="mobile" />
-          </label>
+        <div class="activation-step">
+          <h3 class="activation-step__title">1. Choose Scope</h3>
+          <div class="activation-fields">
+            <label class="inventory-filter">
+              <span class="inventory-filter__label">Client Profile (optional)</span>
+              <input id="activation-client-profile" class="input input--compact" type="text" placeholder="mobile" />
+            </label>
+          </div>
+          <div class="activation-shell__meta">
+            <button id="btn-refresh-activation" class="btn btn--secondary btn--sm" type="button">Refresh Scope Mapping</button>
+            <span id="activation-scope-label" class="meta-line">Scope: none selected</span>
+          </div>
         </div>
-        <div class="activation-shell__meta">
-          <button id="btn-refresh-activation" class="btn btn--secondary btn--sm" type="button">Refresh Scope Mapping</button>
-          <span id="activation-scope-label" class="meta-line">scope: none selected</span>
+
+        <div class="activation-step">
+          <h3 class="activation-step__title">2. Filter Active Mappings</h3>
+          <div class="activation-fields activation-fields--filters">
+            <label class="inventory-filter">
+              <span class="inventory-filter__label">Policy Type</span>
+              <select id="activation-filter-policy-type" class="select input--compact">
+                <option value="">All policy types</option>
+              </select>
+            </label>
+            <label class="inventory-filter">
+              <span class="inventory-filter__label">Namespace</span>
+              <select id="activation-filter-namespace" class="select input--compact">
+                <option value="">All namespaces</option>
+              </select>
+            </label>
+            <label class="inventory-filter">
+              <span class="inventory-filter__label">Status</span>
+              <select id="activation-filter-status" class="select input--compact">
+                <option value="">All statuses</option>
+              </select>
+            </label>
+            <label class="inventory-filter">
+              <span class="inventory-filter__label">Search</span>
+              <input
+                id="activation-filter-search"
+                class="input input--compact"
+                type="text"
+                placeholder="policy id, key, or variant"
+              />
+            </label>
+          </div>
+          <div class="activation-shell__meta">
+            <span id="activation-filter-count" class="meta-line">Showing 0 mappings</span>
+          </div>
         </div>
-        <div class="list-shell list-shell--compact list-shell--activation">
-          <ul id="activation-list" class="report-list"></ul>
+
+        <div class="activation-step">
+          <h3 class="activation-step__title">3. Review Mappings</h3>
+          <div class="activation-shell__meta activation-shell__meta--actions">
+            <span id="activation-selected-mapping" class="meta-line">Selected mapping: none</span>
+            <div class="activation-status-actions">
+              <label class="inventory-filter activation-status-actions__label">
+                <span class="inventory-filter__label">Set Status</span>
+                <select id="activation-set-status" class="select input--compact">
+                  <option value="">Select status</option>
+                </select>
+              </label>
+              <button id="btn-activation-apply-status" class="btn btn--secondary btn--sm" type="button">
+                Apply Status
+              </button>
+            </div>
+          </div>
+          <div class="list-shell list-shell--compact list-shell--activation">
+            <div id="activation-list"></div>
+          </div>
         </div>
       </section>
     </section>
   </section>
 
-  <section class="panel panel--right" aria-label="Workbench Side Panel">
-    <h2 class="panel__heading">Workspace Panel</h2>
-    <p class="meta-line">Reserved for future workflow features.</p>
+  <section id="workspace-panel" class="panel panel--right is-collapsed" aria-label="Workbench Side Panel">
+    <div class="workspace-panel__header">
+      <button
+        id="btn-toggle-workspace-panel"
+        class="workspace-panel__toggle"
+        type="button"
+        aria-controls="workspace-panel-content"
+        aria-expanded="false"
+        aria-label="Expand workspace panel"
+      >></button>
+      <h2 id="workspace-panel-heading" class="panel__heading workspace-panel__heading">Workspace Panel</h2>
+    </div>
+    <div id="workspace-panel-content" class="workspace-panel__content">
+      <hr class="divider">
+    </div>
   </section>
 </main>
 

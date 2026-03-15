@@ -8,12 +8,16 @@ import {
   runtimeModeLabel,
 } from "./runtime.js";
 import {
+  applyActivationFilters,
+  applySelectedActivationStatus,
   refreshActivationScope,
   refreshPolicyFilterOptions,
   refreshPolicyInventory,
   refreshPolicyNamespaceOptions,
   renderActivationMessage,
   renderUnauthorizedServerState,
+  setAvailableWorldOptions,
+  updateActivationStatusActionState,
   updateActivationSaveSummary,
   updateActivationScopeLabel,
 } from "./inventory.js";
@@ -119,6 +123,35 @@ function wireRuntimeEvents() {
   }
 }
 
+function setWorkspacePanelCollapsed(isCollapsed) {
+  if (!dom.workbenchGrid || !dom.workspacePanel || !dom.btnToggleWorkspacePanel) {
+    return;
+  }
+
+  dom.workbenchGrid.classList.toggle("workbench-grid--right-collapsed", isCollapsed);
+  dom.workspacePanel.classList.toggle("is-collapsed", isCollapsed);
+  if (dom.workspacePanelContent) {
+    dom.workspacePanelContent.hidden = isCollapsed;
+  }
+  dom.btnToggleWorkspacePanel.setAttribute("aria-expanded", String(!isCollapsed));
+  dom.btnToggleWorkspacePanel.setAttribute(
+    "aria-label",
+    isCollapsed ? "Expand workspace panel" : "Collapse workspace panel"
+  );
+  dom.btnToggleWorkspacePanel.textContent = isCollapsed ? ">" : "<";
+}
+
+function wireWorkspacePanelEvents() {
+  if (!dom.btnToggleWorkspacePanel || !dom.workspacePanel) {
+    return;
+  }
+  setWorkspacePanelCollapsed(true);
+  dom.btnToggleWorkspacePanel.addEventListener("click", () => {
+    const isCurrentlyCollapsed = dom.workspacePanel.classList.contains("is-collapsed");
+    setWorkspacePanelCollapsed(!isCurrentlyCollapsed);
+  });
+}
+
 function wireInventoryEvents() {
   if (dom.inventoryWorld) {
     dom.inventoryWorld.addEventListener("change", () => {
@@ -177,6 +210,26 @@ function wireActivationEvents() {
   if (dom.saveRolloutAllWorlds) {
     dom.saveRolloutAllWorlds.addEventListener("change", updateActivationSaveSummary);
   }
+  if (dom.activationFilterPolicyType) {
+    dom.activationFilterPolicyType.addEventListener("change", applyActivationFilters);
+  }
+  if (dom.activationFilterNamespace) {
+    dom.activationFilterNamespace.addEventListener("change", applyActivationFilters);
+  }
+  if (dom.activationFilterStatus) {
+    dom.activationFilterStatus.addEventListener("change", applyActivationFilters);
+  }
+  if (dom.activationFilterSearch) {
+    dom.activationFilterSearch.addEventListener("input", applyActivationFilters);
+  }
+  if (dom.activationSetStatus) {
+    dom.activationSetStatus.addEventListener("change", updateActivationStatusActionState);
+  }
+  if (dom.btnActivationApplyStatus) {
+    dom.btnActivationApplyStatus.addEventListener("click", () => {
+      void applySelectedActivationStatus();
+    });
+  }
 }
 
 function wireActionEvents() {
@@ -201,7 +254,8 @@ function wireActionEvents() {
 async function bootstrapInitialData() {
   try {
     await getRuntimeModeState();
-    await refreshRuntimeAuthState({ silent: true });
+    const runtimeAuthPayload = await refreshRuntimeAuthState({ silent: true });
+    setAvailableWorldOptions(runtimeAuthPayload?.available_worlds || []);
     await refreshPolicyFilterOptions({ silent: true });
   } catch (error) {
     _setStatus(`Runtime mode load failed: ${error.message}`);
@@ -219,6 +273,7 @@ async function bootstrapInitialData() {
 
 export async function initializeWorkbench() {
   requireBootDeps();
+  wireWorkspacePanelEvents();
   wireMainTabEvents();
   setActiveMainTab("editor");
   wireRuntimeEvents();
