@@ -20,6 +20,7 @@ export const dom = {
   currentPolicyNamespace: document.getElementById("current-policy-namespace"),
   currentPolicyKey: document.getElementById("current-policy-key"),
   currentPolicyVariant: document.getElementById("current-policy-variant"),
+  currentPolicySchemaVersion: document.getElementById("current-policy-schema-version"),
   currentPolicyStatus: document.getElementById("current-policy-status"),
   currentPolicyVersion: document.getElementById("current-policy-version"),
   currentPolicyContentHash: document.getElementById("current-policy-content-hash"),
