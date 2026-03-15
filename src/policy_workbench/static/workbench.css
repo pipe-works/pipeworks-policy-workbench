@@ -17,6 +17,10 @@
   overflow: hidden;
 }
 
+.workbench-grid--right-collapsed {
+  grid-template-columns: minmax(520px, 1fr) 2.25rem;
+}
+
 .runtime-mode-shell {
   position: fixed;
   top: var(--header-h);
@@ -158,6 +162,49 @@
 .panel--right {
   background: var(--col-surface-2);
   overflow: hidden;
+}
+
+.workspace-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.workspace-panel__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--col-border-hi);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--col-surface) 72%, var(--col-bg));
+  color: var(--col-text-muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.workspace-panel__toggle:hover {
+  color: var(--col-text);
+  border-color: var(--col-accent);
+}
+
+.panel--right.is-collapsed {
+  align-items: center;
+  justify-content: flex-start;
+  padding: var(--sp-2) 0.2rem;
+}
+
+.panel--right.is-collapsed .workspace-panel__header {
+  width: 100%;
+  justify-content: center;
+}
+
+.panel--right.is-collapsed .workspace-panel__heading,
+.panel--right.is-collapsed .workspace-panel__content {
+  display: none;
 }
 
 .panel-header-row {
@@ -361,8 +408,8 @@
   text-overflow: ellipsis;
 }
 
-.inventory-table th:nth-child(1),
-.inventory-table td:nth-child(1) {
+.inventory-table--policy th:nth-child(1),
+.inventory-table--policy td:nth-child(1) {
   width: 62%;
 }
 
@@ -511,11 +558,47 @@
   gap: var(--sp-2);
 }
 
+.activation-fields--filters {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.activation-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--col-border) 68%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--col-surface-2) 46%, var(--col-bg));
+  padding: var(--sp-2);
+}
+
+.activation-step__title {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--col-text);
+}
+
 .activation-shell__meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
+}
+
+.activation-shell__meta--actions {
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.activation-status-actions {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+}
+
+.activation-status-actions__label {
+  min-width: 10rem;
 }
 
 .activation-toggle {
@@ -528,8 +611,55 @@
 }
 
 .list-shell--activation {
-  min-height: 7rem;
-  max-height: 11rem;
+  min-height: 10rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.activation-table {
+  width: 100%;
+  table-layout: fixed;
+  font-family: var(--font-mono);
+}
+
+.activation-table td,
+.activation-table th {
+  white-space: nowrap;
+}
+
+.activation-table td {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.activation-table th {
+  position: relative;
+}
+
+.activation-table th:nth-child(1),
+.activation-table td:nth-child(1) {
+  width: auto;
+}
+
+.activation-table__resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.activation-table__resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: color-mix(in srgb, var(--col-border-hi) 70%, transparent);
 }
 
 .report-item {
@@ -560,6 +690,10 @@
   .workbench-grid {
     grid-template-columns: minmax(420px, 1fr) 320px;
   }
+
+  .workbench-grid--right-collapsed {
+    grid-template-columns: minmax(420px, 1fr) 2.25rem;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -580,6 +714,10 @@
     display: flex;
     flex-direction: column;
     min-height: calc(100vh - var(--header-h) - var(--runtime-mode-shell-h) - var(--statusbar-h));
+  }
+
+  .workbench-grid--right-collapsed {
+    display: flex;
   }
 
   .panel {
@@ -656,6 +794,25 @@
 
   .activation-fields {
     grid-template-columns: 1fr;
+  }
+
+  .activation-fields--filters {
+    grid-template-columns: 1fr;
+  }
+
+  .activation-status-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .activation-status-actions__label {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .activation-table__resize-handle {
+    display: none;
   }
 
   .activation-save-summary {

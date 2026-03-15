@@ -70,9 +70,6 @@ async function activatePolicyScope({
     policy_id: policyId,
     variant,
   };
-  if ((state.runtimeSessionId || "").trim()) {
-    activationPayload.session_id = state.runtimeSessionId.trim();
-  }
   return _fetchJson("/api/policy-activation-set", {
     method: "POST",
     body: JSON.stringify(activationPayload),
@@ -219,9 +216,6 @@ export async function saveCurrentFile() {
       status: "draft",
       activate: activateAfterSave,
     };
-    if ((state.runtimeSessionId || "").trim()) {
-      savePayload.session_id = state.runtimeSessionId.trim();
-    }
     if (activateAfterSave) {
       savePayload.world_id = activationScope.worldId;
       if (activationScope.clientProfile) {

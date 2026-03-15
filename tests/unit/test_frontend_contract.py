@@ -130,6 +130,26 @@ def test_editor_actions_support_world_scoped_rollout_activation() -> None:
     assert "rolloutVariantToOtherWorlds" in editor_actions_source
 
 
+def test_activation_view_renders_table_with_filters() -> None:
+    """Activation mappings should render as a filterable table, not report chips."""
+
+    template_source = _read(_TEMPLATE_PATH)
+    inventory_source = _read(_WORKBENCH_INVENTORY)
+    assert 'id="activation-filter-policy-type"' in template_source
+    assert 'id="activation-filter-namespace"' in template_source
+    assert 'id="activation-filter-status"' in template_source
+    assert 'id="activation-filter-search"' in template_source
+    assert 'id="activation-set-status"' in template_source
+    assert 'id="btn-activation-apply-status"' in template_source
+    assert "Activation mappings table" in inventory_source
+    assert "applyActivationFilters" in inventory_source
+    assert "applySelectedActivationStatus" in inventory_source
+    assert "renderSelectOptionsWithCounts" in inventory_source
+    assert "activation-table__resize-handle" in inventory_source
+    assert '"Mapped At"' in inventory_source
+    assert '"Updated At"' in inventory_source
+
+
 def test_species_block_editor_view_renders_canonical_json_content() -> None:
     """Species blocks should render canonical object JSON in editor view."""
     inventory_source = _read(_WORKBENCH_INVENTORY)

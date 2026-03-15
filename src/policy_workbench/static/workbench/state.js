@@ -1,8 +1,12 @@
 export const state = {
   selectedArtifact: null,
   selectedPolicyRecord: null,
+  selectedActivationSelector: "",
   inventoryItems: [],
   latestActivationPayload: null,
+  activationRows: [],
+  activationColumnWidths: null,
+  policyStatusOptions: [],
   runtimeMode: null,
   runtimeAuth: null,
   runtimeSessionId: "",

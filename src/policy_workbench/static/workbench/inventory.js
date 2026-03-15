@@ -56,11 +56,16 @@ function renderPolicyNamespaceOptions(payload) {
 }
 
 function renderPolicyStatusOptions(payload) {
+  const statusItems = (Array.isArray(payload?.items) ? payload.items : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  state.policyStatusOptions = statusItems;
   renderSelectOptions({
     selectElement: dom.inventoryStatus,
     allLabel: "All statuses",
-    options: Array.isArray(payload?.items) ? payload.items : [],
+    options: statusItems,
   });
+  renderActivationSetStatusOptions();
 }
 
 function normalizeWorldRows(worldRows) {
@@ -213,6 +218,34 @@ function renderSelectOptions({
   if (previouslySelected && normalizedOptions.includes(previouslySelected)) {
     selectElement.value = previouslySelected;
   }
+}
+
+function renderActivationSetStatusOptions() {
+  if (!dom.activationSetStatus) {
+    return;
+  }
+  const previousValue = String(dom.activationSetStatus.value || "").trim();
+  const statusOptions = (state.policyStatusOptions || [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  dom.activationSetStatus.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select status";
+  dom.activationSetStatus.appendChild(placeholder);
+
+  for (const statusValue of statusOptions) {
+    const option = document.createElement("option");
+    option.value = statusValue;
+    option.textContent = statusValue;
+    dom.activationSetStatus.appendChild(option);
+  }
+
+  if (previousValue && statusOptions.includes(previousValue)) {
+    dom.activationSetStatus.value = previousValue;
+  }
+  updateActivationStatusActionState();
 }
 
 async function refreshPolicyTypeOptions({ silent = true } = {}) {
@@ -451,7 +484,7 @@ export function renderPolicyInventory(items) {
 
   const selectedKey = selectedPolicyKey();
   const table = document.createElement("table");
-  table.className = "inventory-table";
+  table.className = "inventory-table inventory-table--policy";
   table.setAttribute("aria-label", "Policy inventory table");
 
   const thead = document.createElement("thead");
@@ -680,55 +713,636 @@ export function updateActivationSaveSummary() {
 }
 
 export function renderActivationMessage(message, tone = "info") {
+  state.latestActivationPayload = null;
+  state.activationRows = [];
+  state.selectedActivationSelector = "";
+  state.activationColumnWidths = null;
+  updateCurrentObjectActivationState();
+  syncActivationFilterOptions([]);
+  setActivationFilterCount(0, 0);
+  renderActivationTableMessage(message, tone);
+  updateActivationStatusActionState();
+  setServerFeatureAvailability();
+}
+
+function renderActivationTableMessage(message, tone = "info") {
   if (!dom.activationList) {
     return;
   }
   dom.activationList.innerHTML = "";
-  const item = document.createElement("li");
+  const item = document.createElement("div");
   item.className = `report-item report-item--${tone}`;
   item.textContent = message;
   dom.activationList.appendChild(item);
 }
 
-function renderActivationScopePayload(payload) {
-  state.latestActivationPayload = payload;
-  updateCurrentObjectActivationState();
+function setActivationFilterCount(visibleCount, totalCount) {
+  if (!dom.activationFilterCount) {
+    return;
+  }
+  if (!totalCount) {
+    dom.activationFilterCount.textContent = "Showing 0 mappings";
+    return;
+  }
+  dom.activationFilterCount.textContent =
+    visibleCount === totalCount
+      ? `Showing ${visibleCount} mappings`
+      : `Showing ${visibleCount} of ${totalCount} mappings`;
+}
+
+function getActivationRowBySelector(selector) {
+  const normalizedSelector = String(selector || "").trim();
+  if (!normalizedSelector) {
+    return null;
+  }
+  return (
+    (state.activationRows || []).find(
+      (row) => String(row?.selector || "").trim() === normalizedSelector
+    ) || null
+  );
+}
+
+function getSelectedActivationRow() {
+  return getActivationRowBySelector(state.selectedActivationSelector);
+}
+
+function setSelectedActivationRow(selector) {
+  state.selectedActivationSelector = String(selector || "").trim();
+  updateActivationStatusActionState();
+}
+
+function formatActivationRowLabel(row) {
+  if (!row) {
+    return "Selected mapping: none";
+  }
+  return `Selected mapping: ${row.policyId}:${row.variant}`;
+}
+
+function parseActivationPolicyId(policyIdValue) {
+  const policyId = String(policyIdValue || "").trim();
+  const parts = policyId.split(":");
+  const policyType = String(parts.shift() || "").trim();
+  const namespace = String(parts.shift() || "").trim();
+  const policyKey = String(parts.join(":") || "").trim();
+  return {
+    policyId,
+    policyType,
+    namespace,
+    policyKey,
+  };
+}
+
+function normalizeActivationRows(items) {
+  return (items || []).map((itemRow) => {
+    const parsed = parseActivationPolicyId(itemRow?.policy_id);
+    const variant = String(itemRow?.variant || "").trim();
+    return {
+      ...parsed,
+      variant,
+      selector: `${parsed.policyId}:${variant}`,
+      status: "unknown",
+      updatedAt: "",
+      mappedAt: String(itemRow?.activated_at || "").trim(),
+      activatedBy: String(itemRow?.activated_by || "").trim(),
+      searchTarget: "",
+    };
+  });
+}
+
+const ACTIVATION_COLUMN_LABELS = [
+  "Policy Type",
+  "Namespace",
+  "Policy Key",
+  "Variant",
+  "Status",
+  "Updated At",
+  "Activated By",
+  "Mapped At",
+];
+const DEFAULT_ACTIVATION_COLUMN_WIDTHS = [90, 120, 300, 110, 100, 170, 140, 170];
+let _measureCanvas = null;
+
+function countValues(rows, selectValueFn) {
+  const counts = new Map();
+  for (const row of rows || []) {
+    const value = String(selectValueFn(row) || "").trim();
+    if (!value) {
+      continue;
+    }
+    counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  return counts;
+}
+
+function renderSelectOptionsWithCounts({
+  selectElement,
+  allLabel,
+  countByValue,
+}) {
+  if (!selectElement) {
+    return;
+  }
+
+  const previouslySelected = String(selectElement.value || "").trim();
+  const entries = Array.from(countByValue.entries()).sort((left, right) =>
+    left[0].localeCompare(right[0])
+  );
+  const totalCount = entries.reduce((acc, [, count]) => acc + count, 0);
+
+  selectElement.innerHTML = "";
+  const allOption = document.createElement("option");
+  allOption.value = "";
+  allOption.textContent = `${allLabel} (${totalCount})`;
+  selectElement.appendChild(allOption);
+
+  for (const [optionValue, count] of entries) {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = `${optionValue} (${count})`;
+    selectElement.appendChild(option);
+  }
+
+  if (previouslySelected && countByValue.has(previouslySelected)) {
+    selectElement.value = previouslySelected;
+  }
+}
+
+function rowsForNamespaceCount(rows) {
+  const selectedPolicyType = String(dom.activationFilterPolicyType?.value || "").trim();
+  if (!selectedPolicyType) {
+    return rows;
+  }
+  return rows.filter((row) => row.policyType === selectedPolicyType);
+}
+
+function rowsForStatusCount(rows) {
+  const selectedPolicyType = String(dom.activationFilterPolicyType?.value || "").trim();
+  const selectedNamespace = String(dom.activationFilterNamespace?.value || "").trim();
+  return rows.filter((row) => {
+    if (selectedPolicyType && row.policyType !== selectedPolicyType) {
+      return false;
+    }
+    if (selectedNamespace && row.namespace !== selectedNamespace) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function measureTextWidthPx(text, fontSpec) {
+  if (!_measureCanvas) {
+    _measureCanvas = document.createElement("canvas");
+  }
+  const context = _measureCanvas.getContext("2d");
+  if (!context) {
+    return String(text || "").length * 8;
+  }
+  context.font = fontSpec;
+  return context.measureText(String(text || "")).width;
+}
+
+function activationColumnValues(row) {
+  return [
+    row.policyType || "--",
+    row.namespace || "--",
+    row.policyKey || "--",
+    row.variant || "--",
+    row.status || "--",
+    row.updatedAt || "--",
+    row.activatedBy || "--",
+    row.mappedAt || "--",
+  ];
+}
+
+function autosizeActivationColumnWidths(rows, containerWidthPx) {
+  const labels = ACTIVATION_COLUMN_LABELS;
+  const bodyFont = window.getComputedStyle(dom.activationList || document.body).font || "12px monospace";
+  const widths = labels.map((label, index) => {
+    let best = Math.ceil(measureTextWidthPx(label, bodyFont)) + 34;
+    for (const row of rows) {
+      const value = activationColumnValues(row)[index] || "";
+      best = Math.max(best, Math.ceil(measureTextWidthPx(value, bodyFont)) + 20);
+    }
+    return best;
+  });
+
+  const totalWidth = widths.reduce((acc, value) => acc + value, 0);
+  const targetWidth = Math.max(containerWidthPx || 0, totalWidth);
+  if (!totalWidth || targetWidth <= totalWidth) {
+    return widths;
+  }
+  const scale = targetWidth / totalWidth;
+  return widths.map((value) => value * scale);
+}
+
+function getActivationColumnWidths(rows, containerWidthPx) {
+  const existingWidths = Array.isArray(state.activationColumnWidths)
+    ? state.activationColumnWidths
+    : null;
+  if (
+    existingWidths &&
+    existingWidths.length === ACTIVATION_COLUMN_LABELS.length &&
+    existingWidths.every((value) => Number.isFinite(value) && value > 0)
+  ) {
+    return [...existingWidths];
+  }
+  return autosizeActivationColumnWidths(rows, containerWidthPx);
+}
+
+function applyActivationColumnWidths(table, columns, widths) {
+  const normalizedWidths = widths.map((value, index) =>
+    Number.isFinite(value) && value > 0 ? value : DEFAULT_ACTIVATION_COLUMN_WIDTHS[index]
+  );
+  const totalWidth = normalizedWidths.reduce((acc, value) => acc + value, 0);
+  for (const [index, column] of columns.entries()) {
+    column.style.width = `${normalizedWidths[index].toFixed(2)}px`;
+  }
+  table.style.width = `${Math.max(totalWidth, 1)}px`;
+}
+
+function syncActivationFilterOptions(rows) {
+  renderSelectOptionsWithCounts({
+    selectElement: dom.activationFilterPolicyType,
+    allLabel: "All policy types",
+    countByValue: countValues(rows, (row) => row.policyType),
+  });
+  renderSelectOptionsWithCounts({
+    selectElement: dom.activationFilterNamespace,
+    allLabel: "All namespaces",
+    countByValue: countValues(rowsForNamespaceCount(rows), (row) => row.namespace),
+  });
+  renderSelectOptionsWithCounts({
+    selectElement: dom.activationFilterStatus,
+    allLabel: "All statuses",
+    countByValue: countValues(rowsForStatusCount(rows), (row) => row.status),
+  });
+  if (dom.activationFilterSearch) {
+    dom.activationFilterSearch.value = "";
+  }
+}
+
+function filterActivationRows(rows) {
+  const selectedPolicyType = String(dom.activationFilterPolicyType?.value || "").trim();
+  const selectedNamespace = String(dom.activationFilterNamespace?.value || "").trim();
+  const selectedStatus = String(dom.activationFilterStatus?.value || "").trim();
+  const searchValue = String(dom.activationFilterSearch?.value || "")
+    .trim()
+    .toLowerCase();
+
+  return rows.filter((row) => {
+    if (selectedPolicyType && row.policyType !== selectedPolicyType) {
+      return false;
+    }
+    if (selectedNamespace && row.namespace !== selectedNamespace) {
+      return false;
+    }
+    if (selectedStatus && row.status !== selectedStatus) {
+      return false;
+    }
+    if (searchValue && !row.searchTarget.includes(searchValue)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+export function updateActivationStatusActionState() {
+  const selectedRow = getSelectedActivationRow();
+  if (dom.activationSelectedMapping) {
+    dom.activationSelectedMapping.textContent = formatActivationRowLabel(selectedRow);
+  }
+
+  if (dom.activationSetStatus) {
+    dom.activationSetStatus.disabled = !isServerAuthorized() || !selectedRow;
+    if (!selectedRow) {
+      dom.activationSetStatus.value = "";
+      dom.activationSetStatus.dataset.boundSelector = "";
+    } else if (dom.activationSetStatus.dataset.boundSelector !== selectedRow.selector) {
+      const hasStatusOption = Array.from(dom.activationSetStatus.options || []).some(
+        (option) => String(option.value || "").trim() === String(selectedRow.status || "").trim()
+      );
+      dom.activationSetStatus.value = hasStatusOption ? String(selectedRow.status || "").trim() : "";
+      dom.activationSetStatus.dataset.boundSelector = selectedRow.selector;
+    }
+  }
+
+  const selectedStatus = String(dom.activationSetStatus?.value || "").trim();
+  const canApplyStatus =
+    Boolean(selectedRow) &&
+    isServerAuthorized() &&
+    Boolean(selectedStatus) &&
+    selectedStatus !== String(selectedRow?.status || "").trim();
+  if (dom.btnActivationApplyStatus) {
+    dom.btnActivationApplyStatus.disabled = !canApplyStatus;
+  }
+}
+
+export async function applySelectedActivationStatus() {
+  requireInventoryDeps();
+  if (!isServerAuthorized()) {
+    _setStatus("Status update unavailable: admin/superuser session required.");
+    return;
+  }
+
+  const selectedRow = getSelectedActivationRow();
+  if (!selectedRow) {
+    _setStatus("Select a mapping row before applying a status change.");
+    return;
+  }
+
+  const nextStatus = String(dom.activationSetStatus?.value || "").trim();
+  if (!nextStatus) {
+    _setStatus("Choose a target status before applying.");
+    return;
+  }
+  if (nextStatus === String(selectedRow.status || "").trim()) {
+    _setStatus(`Selected mapping is already ${nextStatus}.`);
+    return;
+  }
+
+  _setStatus(`Applying status ${nextStatus} to ${selectedRow.policyId}:${selectedRow.variant}...`);
+  try {
+    const query = new URLSearchParams({ variant: selectedRow.variant });
+    const detailPayload = await _fetchJson(
+      sessionScopedUrl(`/api/policies/${encodeURIComponent(selectedRow.policyId)}?${query.toString()}`)
+    );
+    const savePayload = {
+      policy_type: selectedRow.policyType,
+      namespace: selectedRow.namespace,
+      policy_key: selectedRow.policyKey,
+      variant: selectedRow.variant,
+      raw_content: JSON.stringify(detailPayload.content || {}, null, 2),
+      schema_version: String(detailPayload.schema_version || "1.0").trim() || "1.0",
+      status: nextStatus,
+      activate: false,
+    };
+
+    const saveResult = await _fetchJson("/api/policy-save", {
+      method: "POST",
+      body: JSON.stringify(savePayload),
+    });
+
+    await refreshActivationScope({ silent: true });
+    setSelectedActivationRow(selectedRow.selector);
+    if (
+      state.selectedPolicyRecord &&
+      String(state.selectedPolicyRecord.policy_id || "").trim() === selectedRow.policyId &&
+      String(state.selectedPolicyRecord.variant || "").trim() === selectedRow.variant
+    ) {
+      await loadPolicyObject(selectedRow.policyId, selectedRow.variant);
+    }
+    _setStatus(
+      `Status updated for ${selectedRow.policyId}:${selectedRow.variant} to ${nextStatus} (v${saveResult.policy_version}).`
+    );
+  } catch (error) {
+    _setStatus(`Status update failed: ${error.message}`);
+  } finally {
+    updateActivationStatusActionState();
+    setServerFeatureAvailability();
+  }
+}
+
+function renderActivationRowsTable(rows) {
   if (!dom.activationList) {
     return;
   }
-
-  const items = Array.isArray(payload?.items) ? payload.items : [];
   dom.activationList.innerHTML = "";
-  if (!items.length) {
-    renderActivationMessage("No active mappings for this scope yet.");
+
+  const table = document.createElement("table");
+  table.className = "inventory-table activation-table";
+  table.setAttribute("aria-label", "Activation mappings table");
+
+  const containerWidth = Math.max(dom.activationList.clientWidth || 0, 1);
+  const columnWidths = getActivationColumnWidths(rows, containerWidth);
+  const colgroup = document.createElement("colgroup");
+  const columns = ACTIVATION_COLUMN_LABELS.map(() => {
+    const col = document.createElement("col");
+    colgroup.appendChild(col);
+    return col;
+  });
+  applyActivationColumnWidths(table, columns, columnWidths);
+  table.appendChild(colgroup);
+
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const [columnIndex, label] of ACTIVATION_COLUMN_LABELS.entries()) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    if (columnIndex < ACTIVATION_COLUMN_LABELS.length - 1) {
+      const handle = document.createElement("span");
+      handle.className = "activation-table__resize-handle";
+      handle.setAttribute("aria-hidden", "true");
+      handle.dataset.columnIndex = String(columnIndex);
+      th.appendChild(handle);
+      wireActivationColumnResize({
+        handle,
+        table,
+        columns,
+        columnIndex,
+      });
+    }
+    headerRow.appendChild(th);
+  }
+  thead.appendChild(headerRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    if (String(row.selector || "").trim() === String(state.selectedActivationSelector || "").trim()) {
+      tr.classList.add("is-active");
+    }
+    tr.tabIndex = 0;
+    tr.title = `${row.policyId}:${row.variant}`;
+    tr.addEventListener("click", () => {
+      setSelectedActivationRow(row.selector);
+      applyActivationFilters();
+    });
+    tr.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      setSelectedActivationRow(row.selector);
+      applyActivationFilters();
+    });
+
+    const columnValues = activationColumnValues(row);
+    columnValues.forEach((value, index) => {
+      const td = document.createElement("td");
+      td.setAttribute("data-label", ACTIVATION_COLUMN_LABELS[index]);
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  dom.activationList.appendChild(table);
+  updateActivationStatusActionState();
+}
+
+function withActivationSearchTarget(row) {
+  return {
+    ...row,
+    searchTarget: [
+      row.policyId,
+      row.policyType,
+      row.namespace,
+      row.policyKey,
+      row.variant,
+      row.status,
+      row.updatedAt,
+      row.activatedBy,
+      row.mappedAt,
+    ]
+      .join(" ")
+      .toLowerCase(),
+  };
+}
+
+async function buildActivationStatusMap(rows) {
+  const policyTypes = Array.from(
+    new Set(
+      (rows || [])
+        .map((row) => String(row?.policyType || "").trim())
+        .filter(Boolean)
+    )
+  );
+  if (!policyTypes.length) {
+    return new Map();
+  }
+
+  try {
+    const payloadGroups = await Promise.all(
+      policyTypes.map(async (policyType) => {
+        const query = new URLSearchParams({ policy_type: policyType });
+        const payload = await _fetchJson(
+          sessionScopedUrl(`/api/policies?${query.toString()}`)
+        );
+        return Array.isArray(payload?.items) ? payload.items : [];
+      })
+    );
+
+    const detailsBySelector = new Map();
+    for (const group of payloadGroups) {
+      for (const item of group) {
+        const selector = `${String(item?.policy_id || "").trim()}:${String(item?.variant || "").trim()}`;
+        const status = String(item?.status || "").trim();
+        const updatedAt = String(item?.updated_at || "").trim();
+        if (!selector || !status) {
+          continue;
+        }
+        detailsBySelector.set(selector, {
+          status,
+          updatedAt,
+        });
+      }
+    }
+    return detailsBySelector;
+  } catch (_error) {
+    return new Map();
+  }
+}
+
+function wireActivationColumnResize({
+  handle,
+  table,
+  columns,
+  columnIndex,
+}) {
+  handle.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    const startingWidths = columns.map((column) =>
+      Math.max(column.getBoundingClientRect().width, parseFloat(column.style.width) || 0)
+    );
+    const startX = event.clientX;
+
+    const onMouseMove = (moveEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const leftWidth = startingWidths[columnIndex] + deltaX;
+      const rightWidth = startingWidths[columnIndex + 1] - deltaX;
+      if (leftWidth <= 0 || rightWidth <= 0) {
+        return;
+      }
+
+      const nextWidths = [...startingWidths];
+      nextWidths[columnIndex] = leftWidth;
+      nextWidths[columnIndex + 1] = rightWidth;
+      state.activationColumnWidths = nextWidths;
+      applyActivationColumnWidths(table, columns, nextWidths);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  });
+}
+
+export function applyActivationFilters() {
+  const allRows = Array.isArray(state.activationRows) ? state.activationRows : [];
+  renderSelectOptionsWithCounts({
+    selectElement: dom.activationFilterNamespace,
+    allLabel: "All namespaces",
+    countByValue: countValues(rowsForNamespaceCount(allRows), (row) => row.namespace),
+  });
+  renderSelectOptionsWithCounts({
+    selectElement: dom.activationFilterStatus,
+    allLabel: "All statuses",
+    countByValue: countValues(rowsForStatusCount(allRows), (row) => row.status),
+  });
+  const sortedRows = [...allRows].sort((left, right) => {
+    const leftSelector =
+      `${left.policyType}:${left.namespace}:${left.policyKey}:${left.variant}`.toLowerCase();
+    const rightSelector =
+      `${right.policyType}:${right.namespace}:${right.policyKey}:${right.variant}`.toLowerCase();
+    return leftSelector.localeCompare(rightSelector);
+  });
+  const filteredRows = filterActivationRows(sortedRows);
+  const selectedSelector = String(state.selectedActivationSelector || "").trim();
+  if (
+    selectedSelector &&
+    !filteredRows.some((row) => String(row?.selector || "").trim() === selectedSelector)
+  ) {
+    state.selectedActivationSelector = "";
+  }
+  setActivationFilterCount(filteredRows.length, sortedRows.length);
+
+  if (!sortedRows.length) {
+    renderActivationTableMessage("No active mappings for this scope yet.");
+    updateActivationStatusActionState();
     return;
   }
-
-  const sortedItems = [...items].sort((left, right) => {
-    const leftPolicyId = String(left.policy_id || "");
-    const rightPolicyId = String(right.policy_id || "");
-    return leftPolicyId.localeCompare(rightPolicyId);
-  });
-
-  for (const itemRow of sortedItems) {
-    const policyId = String(itemRow.policy_id || "<unknown-policy>");
-    const variant = String(itemRow.variant || "<unknown-variant>");
-    const activatedAt = String(itemRow.activated_at || "").trim();
-    const activatedBy = String(itemRow.activated_by || "").trim();
-    const suffixParts = [];
-    if (activatedAt) {
-      suffixParts.push(activatedAt);
-    }
-    if (activatedBy) {
-      suffixParts.push(`by ${activatedBy}`);
-    }
-    const suffix = suffixParts.length ? ` · ${suffixParts.join(" · ")}` : "";
-
-    const item = document.createElement("li");
-    item.className = "report-item report-item--info";
-    item.textContent = `${policyId}:${variant}${suffix}`;
-    dom.activationList.appendChild(item);
+  if (!filteredRows.length) {
+    renderActivationTableMessage("No mappings matched current filters.", "warning");
+    updateActivationStatusActionState();
+    return;
   }
+  renderActivationRowsTable(filteredRows);
+}
+
+async function renderActivationScopePayload(payload) {
+  state.latestActivationPayload = payload;
+  state.activationColumnWidths = null;
+  const baseRows = normalizeActivationRows(
+    Array.isArray(payload?.items) ? payload.items : []
+  );
+  const detailsBySelector = await buildActivationStatusMap(baseRows);
+  state.activationRows = baseRows.map((row) =>
+    withActivationSearchTarget({
+      ...row,
+      status: detailsBySelector.get(row.selector)?.status || "unknown",
+      updatedAt: detailsBySelector.get(row.selector)?.updatedAt || "",
+    })
+  );
+  updateCurrentObjectActivationState();
+  syncActivationFilterOptions(state.activationRows);
+  applyActivationFilters();
+  setServerFeatureAvailability();
 }
 
 export async function refreshActivationScope({ silent = false } = {}) {
@@ -762,7 +1376,7 @@ export async function refreshActivationScope({ silent = false } = {}) {
     const payload = await _fetchJson(
       sessionScopedUrl(`/api/policy-activations-live?${query.toString()}`)
     );
-    renderActivationScopePayload(payload);
+    await renderActivationScopePayload(payload);
     if (!silent) {
       const itemCount = Array.isArray(payload?.items) ? payload.items.length : 0;
       _setStatus(`Activation mappings loaded for ${scope} (${itemCount} entries).`);

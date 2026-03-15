@@ -97,6 +97,7 @@ class RuntimeAuthResponse(BaseModel):
     access_granted: bool
     status: str
     detail: str
+    available_worlds: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RuntimeLoginRequest(BaseModel):
@@ -113,6 +114,13 @@ class RuntimeLoginResponse(BaseModel):
     session_id: str | None = None
     role: str | None = None
     available_worlds: list[dict[str, Any]] = Field(default_factory=list)
+    detail: str
+
+
+class RuntimeLogoutResponse(BaseModel):
+    """Runtime logout result for browser-session teardown."""
+
+    success: bool
     detail: str
 
 

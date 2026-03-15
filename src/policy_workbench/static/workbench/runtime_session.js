@@ -84,12 +84,11 @@ export async function loginRuntimeSession() {
         password,
       }),
     });
-    if (!payload.success || !payload.session_id) {
+    if (!payload.success) {
       _setStatus(payload.detail || "Runtime login failed.");
       return;
     }
 
-    setRuntimeSessionId(payload.session_id);
     setAvailableWorldOptions(payload.available_worlds || []);
     if (dom.runtimeLoginPassword) {
       dom.runtimeLoginPassword.value = "";
@@ -114,25 +113,25 @@ export async function loginRuntimeSession() {
 
 async function logoutRuntimeSession() {
   requireRuntimeSessionDeps();
-  if (!(state.runtimeSessionId || "").trim()) {
-    _setStatus("No active runtime session to log out.");
-    return;
-  }
+  try {
+    await _fetchJson("/api/runtime-logout", { method: "POST" });
+    setRuntimeSessionId("");
+    clearAvailableWorldOptions();
+    if (dom.runtimeLoginPassword) {
+      dom.runtimeLoginPassword.value = "";
+    }
+    await refreshRuntimeAuthState({ silent: true });
+    await refreshPolicyFilterOptions({ silent: true });
+    applyRuntimeModeControls();
+    setServerFeatureAvailability();
 
-  setRuntimeSessionId("");
-  clearAvailableWorldOptions();
-  if (dom.runtimeLoginPassword) {
-    dom.runtimeLoginPassword.value = "";
+    state.inventoryItems = [];
+    renderPolicyInventory([]);
+    renderActivationMessage("Server mode connected, but no active runtime session is configured.");
+    _setStatus(`Logged out from ${runtimeModeLabel()}.`);
+  } catch (error) {
+    _setStatus(`Runtime logout failed: ${error.message}`);
   }
-  await refreshRuntimeAuthState({ silent: true });
-  await refreshPolicyFilterOptions({ silent: true });
-  applyRuntimeModeControls();
-  setServerFeatureAvailability();
-
-  state.inventoryItems = [];
-  renderPolicyInventory([]);
-  renderActivationMessage("Server mode connected, but no session id is configured.");
-  _setStatus(`Logged out from ${runtimeModeLabel()}.`);
 }
 
 export async function handleRuntimeLoginButtonAction() {

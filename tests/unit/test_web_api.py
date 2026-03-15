@@ -76,7 +76,7 @@ def _build_client(tmp_path: Path) -> tuple[TestClient, Path, Path]:
         source_root_override=str(source_root),
         map_path_override=str(mirror_map_path),
     )
-    return TestClient(app), source_root, target_root
+    return TestClient(app, base_url="https://testserver"), source_root, target_root
 
 
 def _set_server_dev_mode(client: TestClient) -> None:
@@ -180,7 +180,7 @@ def test_runtime_auth_endpoint_returns_service_payload(tmp_path: Path, monkeypat
 
 
 def test_runtime_login_endpoint_returns_service_payload(tmp_path: Path, monkeypatch) -> None:
-    """Runtime-login endpoint should proxy login helper and return session metadata."""
+    """Runtime-login endpoint should set secure cookie and hide raw session IDs."""
 
     client, _, _ = _build_client(tmp_path)
     _set_server_dev_mode(client)
@@ -205,8 +205,10 @@ def test_runtime_login_endpoint_returns_service_payload(tmp_path: Path, monkeypa
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
-    assert payload["session_id"] == "session-admin-1"
+    assert payload["session_id"] is None
     assert payload["role"] == "admin"
+    assert payload["available_worlds"] == []
+    assert "HttpOnly" in response.headers.get("set-cookie", "")
     assert captured == {
         "mode_key": "server_dev",
         "source_kind": "server_api",
@@ -215,6 +217,102 @@ def test_runtime_login_endpoint_returns_service_payload(tmp_path: Path, monkeypa
         "password": "secret",
         "base_url_override": "http://127.0.0.1:8000",
     }
+
+
+def test_runtime_auth_endpoint_uses_cookie_session_from_runtime_login(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Runtime-auth should resolve session from secure browser cookie when query is empty."""
+
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_runtime_login_payload",
+        lambda **_kwargs: RuntimeLoginResponse(
+            success=True,
+            session_id="cookie-session-1",
+            role="admin",
+            available_worlds=[{"id": "pipeworks_web", "name": "Pipeworks Web"}],
+            detail="Authenticated as admin/superuser.",
+        ),
+    )
+    login_response = client.post(
+        "/api/runtime-login",
+        json={"username": "admin-user", "password": "secret"},
+    )
+    assert login_response.status_code == 200
+    assert login_response.json()["session_id"] is None
+
+    captured: dict[str, object] = {}
+
+    def _fake_runtime_auth_builder(**kwargs):
+        captured.update(kwargs)
+        return RuntimeAuthResponse(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://127.0.0.1:8000",
+            session_present=True,
+            access_granted=True,
+            status="authorized",
+            detail="Session is authorized for admin/superuser policy APIs.",
+        )
+
+    monkeypatch.setattr(web_app_module, "build_runtime_auth_payload", _fake_runtime_auth_builder)
+    auth_response = client.get("/api/runtime-auth")
+
+    assert auth_response.status_code == 200
+    auth_payload = auth_response.json()
+    assert auth_payload["status"] == "authorized"
+    assert auth_payload["available_worlds"] == [{"id": "pipeworks_web", "name": "Pipeworks Web"}]
+    assert captured["session_id_override"] == "cookie-session-1"
+
+
+def test_runtime_logout_clears_cookie_backed_session(tmp_path: Path, monkeypatch) -> None:
+    """Runtime-logout should remove browser session cookie and server token binding."""
+
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+    monkeypatch.setattr(
+        web_app_module,
+        "build_runtime_login_payload",
+        lambda **_kwargs: RuntimeLoginResponse(
+            success=True,
+            session_id="cookie-session-2",
+            role="admin",
+            available_worlds=[],
+            detail="Authenticated as admin/superuser.",
+        ),
+    )
+    login_response = client.post(
+        "/api/runtime-login",
+        json={"username": "admin-user", "password": "secret"},
+    )
+    assert login_response.status_code == 200
+
+    logout_response = client.post("/api/runtime-logout")
+    assert logout_response.status_code == 200
+    assert logout_response.json()["success"] is True
+
+    captured: dict[str, object] = {}
+
+    def _fake_runtime_auth_builder(**kwargs):
+        captured.update(kwargs)
+        return RuntimeAuthResponse(
+            mode_key="server_dev",
+            source_kind="server_api",
+            active_server_url="http://127.0.0.1:8000",
+            session_present=False,
+            access_granted=False,
+            status="missing_session",
+            detail="No active runtime session. Login with an admin/superuser account.",
+        )
+
+    monkeypatch.setattr(web_app_module, "build_runtime_auth_payload", _fake_runtime_auth_builder)
+    auth_response = client.get("/api/runtime-auth")
+    assert auth_response.status_code == 200
+    assert captured["session_id_override"] is None
 
 
 def test_runtime_login_endpoint_maps_mode_error_to_400(tmp_path: Path, monkeypatch) -> None:
