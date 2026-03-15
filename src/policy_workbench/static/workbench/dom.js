@@ -32,6 +32,7 @@ export const dom = {
   currentPolicyUpdatedBy: document.getElementById("current-policy-updated-by"),
   currentPolicyActivation: document.getElementById("current-policy-activation"),
   fileEditor: document.getElementById("file-editor"),
+  editorLineNumbers: document.getElementById("editor-line-numbers"),
   editorLintStatus: document.getElementById("editor-lint-status"),
   editorValidationDetails: document.getElementById("editor-validation-details"),
   inventoryWorld: document.getElementById("inventory-world"),

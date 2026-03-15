@@ -433,6 +433,43 @@
   font-size: var(--text-sm);
 }
 
+.editor-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  border: 1px solid var(--col-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  min-height: 18rem;
+}
+
+.editor-line-numbers {
+  margin: 0;
+  padding: 0 0.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--col-text-muted);
+  background: color-mix(in srgb, var(--col-surface-2) 68%, var(--col-bg));
+  border-right: 1px solid var(--col-border);
+  text-align: right;
+  user-select: none;
+  overflow: hidden;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.editor-shell .editor-area {
+  border: 0;
+  border-radius: 0;
+  min-height: 18rem;
+  margin: 0;
+  white-space: pre;
+  overflow: auto;
+  line-height: 1.6;
+}
+
 .current-object-shell {
   display: flex;
   flex-direction: column;

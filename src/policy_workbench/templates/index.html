@@ -163,14 +163,18 @@
         </dl>
       </section>
 
-      <textarea
-        id="file-editor"
-        class="code-editor editor-area"
-        spellcheck="false"
-        autocomplete="off"
-        readonly
-        placeholder="Select a policy object from inventory to begin editing."
-      ></textarea>
+      <div class="editor-shell">
+        <div id="editor-line-numbers" class="editor-line-numbers" aria-hidden="true">1</div>
+        <textarea
+          id="file-editor"
+          class="code-editor editor-area"
+          spellcheck="false"
+          autocomplete="off"
+          wrap="off"
+          readonly
+          placeholder="Select a policy object from inventory to begin editing."
+        ></textarea>
+      </div>
 
       <div id="editor-lint-status" class="editor-lint-status editor-lint-status--muted" aria-live="polite">
         Read-only. Click Edit Policy to lint and validate draft changes.

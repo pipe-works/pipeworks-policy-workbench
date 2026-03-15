@@ -26,6 +26,7 @@ import {
   handleEditorInputChange,
   openEditorForCurrentSelection,
   refreshEditorLintStatus,
+  refreshEditorLineNumbers,
   resetEditorValidationDetails,
   reloadCurrentFile,
   saveCurrentFile,
@@ -251,9 +252,12 @@ function wireActionEvents() {
   dom.btnReloadFile.addEventListener("click", reloadCurrentFile);
   if (dom.fileEditor) {
     dom.fileEditor.addEventListener("input", handleEditorInputChange);
+    dom.fileEditor.addEventListener("scroll", refreshEditorLineNumbers);
   }
+  window.addEventListener("resize", refreshEditorLineNumbers);
   window.addEventListener("pw:editor-content-updated", () => {
     refreshEditorLintStatus();
+    refreshEditorLineNumbers();
     resetEditorValidationDetails();
   });
   if (dom.btnOpenActivationTab) {
@@ -293,6 +297,7 @@ export async function initializeWorkbench() {
   wireActivationEvents();
   wireActionEvents();
   refreshEditorLintStatus();
+  refreshEditorLineNumbers();
   resetEditorValidationDetails();
   await bootstrapInitialData();
 }

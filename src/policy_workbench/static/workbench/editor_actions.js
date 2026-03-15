@@ -28,6 +28,34 @@ function hasUnsavedEditorChanges() {
   return String(dom.fileEditor?.value || "") !== String(state.editorBaseContent || "");
 }
 
+function updateEditorLineNumberGutter() {
+  if (!dom.editorLineNumbers || !dom.fileEditor) {
+    return;
+  }
+  const editorStyles = window.getComputedStyle(dom.fileEditor);
+  dom.editorLineNumbers.style.fontFamily = editorStyles.fontFamily;
+  dom.editorLineNumbers.style.fontSize = editorStyles.fontSize;
+  dom.editorLineNumbers.style.fontWeight = editorStyles.fontWeight;
+  dom.editorLineNumbers.style.lineHeight = editorStyles.lineHeight;
+  dom.editorLineNumbers.style.paddingTop = editorStyles.paddingTop;
+  dom.editorLineNumbers.style.paddingBottom = editorStyles.paddingBottom;
+
+  const lineCount = Math.max(1, String(dom.fileEditor.value || "").split("\n").length);
+  const digitCount = Math.max(2, String(lineCount).length);
+  dom.editorLineNumbers.style.width = `${digitCount + 2}ch`;
+
+  const lines = [];
+  for (let index = 1; index <= lineCount; index += 1) {
+    lines.push(String(index));
+  }
+  dom.editorLineNumbers.textContent = lines.join("\n");
+  dom.editorLineNumbers.scrollTop = dom.fileEditor.scrollTop;
+}
+
+export function refreshEditorLineNumbers() {
+  updateEditorLineNumberGutter();
+}
+
 const STRUCTURED_POLICY_TYPES = new Set([
   "species_block",
   "clothing_block",
@@ -104,11 +132,28 @@ function normalizeJsonSyntaxError(error) {
   if (!message) {
     return "Invalid JSON syntax.";
   }
-  return `JSON syntax error: ${message}`;
+  const lineColumnMatch = message.match(/\(line\s+(\d+)\s+column\s+(\d+)\)$/i);
+  const withoutPosition = message
+    .replace(/\s+at position\s+\d+(?:\s+\(line\s+\d+\s+column\s+\d+\))?$/i, "")
+    .trim();
+  if (lineColumnMatch) {
+    const line = lineColumnMatch[1];
+    const column = lineColumnMatch[2];
+    return `Invalid JSON syntax at line ${line}, column ${column}: ${withoutPosition || message}`;
+  }
+  return `Invalid JSON syntax: ${withoutPosition || message}`;
 }
 
 function parseJsonObject(rawContent) {
-  const parsed = JSON.parse(rawContent);
+  let parsed;
+  try {
+    parsed = JSON.parse(rawContent);
+  } catch (error) {
+    return {
+      ok: false,
+      message: normalizeJsonSyntaxError(error),
+    };
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return {
       ok: false,
@@ -148,21 +193,17 @@ function evaluateEditorLintState() {
   const looksLikeJson = trimmed.startsWith("{") || trimmed.startsWith("[");
 
   if (STRUCTURED_POLICY_TYPES.has(policyType)) {
-    try {
-      const jsonCheck = parseJsonObject(rawContent);
-      if (jsonCheck.ok) {
-        return { tone: "ok", message: jsonCheck.message };
-      }
-      return { tone: "err", message: jsonCheck.message };
-    } catch (error) {
-      if (looksLikeJson) {
-        return { tone: "err", message: normalizeJsonSyntaxError(error) };
-      }
+    const jsonCheck = parseJsonObject(rawContent);
+    if (jsonCheck.ok) {
+      return { tone: "ok", message: jsonCheck.message };
+    }
+    if (!looksLikeJson) {
       return {
-        tone: "warn",
-        message: "Non-JSON syntax detected. Server validation may still accept YAML.",
+        tone: "err",
+        message: "Canonical editor content must be valid JSON object text.",
       };
     }
+    return { tone: "err", message: jsonCheck.message };
   }
 
   if (TEXT_OR_OBJECT_POLICY_TYPES.has(policyType)) {
@@ -173,21 +214,17 @@ function evaluateEditorLintState() {
       };
     }
 
-    try {
-      const jsonCheck = parseJsonObject(rawContent);
-      if (jsonCheck.ok) {
-        return {
-          tone: "ok",
-          message: "Valid JSON object syntax for text/object policy content.",
-        };
-      }
-      return { tone: "warn", message: jsonCheck.message };
-    } catch (error) {
+    const jsonCheck = parseJsonObject(rawContent);
+    if (jsonCheck.ok) {
       return {
-        tone: "warn",
-        message: `${normalizeJsonSyntaxError(error)} Save will treat this as plain text.`,
+        tone: "ok",
+        message: "Valid JSON object syntax for text/object policy content.",
       };
     }
+    return {
+      tone: "warn",
+      message: `${jsonCheck.message}. Save will treat this as plain text.`,
+    };
   }
 
   return {
@@ -199,6 +236,7 @@ function evaluateEditorLintState() {
 export function refreshEditorLintStatus() {
   const lintState = evaluateEditorLintState();
   setEditorLintStatus(lintState);
+  updateEditorLineNumberGutter();
   return lintState;
 }
 
@@ -268,6 +306,27 @@ function buildPolicyMutationPayload({ resolvedVariant, activateAfterSave }) {
     status: "draft",
     activate: activateAfterSave,
   };
+}
+
+function preflightStructuredJsonOrReport({ actionLabel }) {
+  const policyType = String(state.selectedArtifact?.policy_type || "").trim();
+  if (!STRUCTURED_POLICY_TYPES.has(policyType)) {
+    return true;
+  }
+  const jsonCheck = parseJsonObject(String(dom.fileEditor?.value || ""));
+  if (jsonCheck.ok) {
+    return true;
+  }
+  setEditorLintStatus({
+    tone: "err",
+    message: jsonCheck.message,
+  });
+  setEditorValidationDetails({
+    tone: "err",
+    message: `Cannot ${actionLabel}.\n- ${jsonCheck.message}`,
+  });
+  _setStatus(`${actionLabel} blocked: ${jsonCheck.message}`);
+  return false;
 }
 
 async function activatePolicyScope({
@@ -391,7 +450,10 @@ export async function validateCurrentFile() {
     return;
   }
 
-  const lintState = refreshEditorLintStatus();
+  refreshEditorLintStatus();
+  if (!preflightStructuredJsonOrReport({ actionLabel: "validate" })) {
+    return;
+  }
   const { isWorldOnlyMode, activationScope, resolvedVariant } = resolveSaveMutationInputs();
   const targetLabel = buildPolicySelectorLabel(state.selectedArtifact);
   const scopeSuffix = isWorldOnlyMode && activationScope.worldId
@@ -408,6 +470,10 @@ export async function validateCurrentFile() {
       method: "POST",
       body: JSON.stringify(validatePayload),
     });
+    setEditorLintStatus({
+      tone: "ok",
+      message: "Server validation passed for current draft.",
+    });
     setEditorValidationDetails({
       tone: "ok",
       message:
@@ -420,13 +486,16 @@ export async function validateCurrentFile() {
     );
   } catch (error) {
     const errorDetail = String(error?.message || "").trim();
+    const firstIssue = splitValidationDetails(errorDetail)[0] || errorDetail || "Validation failed.";
+    setEditorLintStatus({
+      tone: "err",
+      message: firstIssue,
+    });
     setEditorValidationDetails({
       tone: "err",
       message: formatValidationFailureMessage(errorDetail),
     });
-    const lintPrefix = lintState.tone === "err" ? `${lintState.message} ` : "";
-    const firstIssue = splitValidationDetails(errorDetail)[0] || errorDetail || "Validation failed.";
-    _setStatus(`Validation failed: ${lintPrefix}${firstIssue}`);
+    _setStatus(`Validation failed: ${firstIssue}`);
   }
 }
 
@@ -446,6 +515,10 @@ export async function saveCurrentFile() {
   }
   if (!hasUnsavedEditorChanges()) {
     _setStatus("No unsaved changes to save.");
+    return;
+  }
+  refreshEditorLintStatus();
+  if (!preflightStructuredJsonOrReport({ actionLabel: "save" })) {
     return;
   }
 

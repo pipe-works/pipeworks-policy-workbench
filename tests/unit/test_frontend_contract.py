@@ -130,6 +130,7 @@ def test_editor_controls_expose_edit_and_close_actions() -> None:
     assert 'id="btn-edit-file"' in template_source
     assert 'id="btn-close-file"' in template_source
     assert 'id="btn-validate-file"' in template_source
+    assert 'id="editor-line-numbers"' in template_source
     assert 'id="editor-lint-status"' in template_source
     assert 'id="editor-validation-details"' in template_source
     assert 'id="save-scope-mode"' in template_source
