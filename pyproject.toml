@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=68.0", "wheel"]
+requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pipeworks-policy-workbench"
 version = "0.1.23"
-description = "Cross-repository policy authoring, validation, and sync tooling for Pipe-Works"
+description = "API-first policy authoring and validation workbench for Pipe-Works"
 readme = "README.md"
 requires-python = ">=3.12"
-license = {text = "GPL-3.0-or-later"}
+license = "GPL-3.0-or-later"
 authors = [{name = "aapark"}]
 dependencies = [
   "fastapi>=0.116.0",
@@ -26,16 +26,31 @@ dev = [
   "black==26.1.0",
   "ruff>=0.14.0",
   "mypy>=1.19.0",
-  "pre-commit>=3.0.0",
+  "bandit[toml]>=1.7.10",
+  "types-PyYAML>=6.0.12.20250822",
+  "pre-commit>=4.0.0",
+  "codespell>=2.3.0",
+  "build>=1.2.2",
+  "setuptools>=69",
+  "wheel>=0.45",
+]
+docs = [
+  "sphinx>=8.0,<9.0",
+  "sphinx-rtd-theme>=3.0",
+  "myst-parser>=4.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/pipe-works/pipeworks-policy-workbench"
 Repository = "https://github.com/pipe-works/pipeworks-policy-workbench.git"
 Issues = "https://github.com/pipe-works/pipeworks-policy-workbench/issues"
+Documentation = "https://github.com/pipe-works/pipeworks-policy-workbench/tree/main/docs"
 
 [project.scripts]
 pw-policy = "policy_workbench.cli:main"
+
+[tool.setuptools]
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -61,7 +76,15 @@ target-version = "py312"
 select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+minversion = "8.0"
+pythonpath = ["src"]
+addopts = [
+  "-q",
+  "-ra",
+  "--strict-markers",
+  "--cov=policy_workbench",
+  "--cov-report=term-missing",
+]
 testpaths = ["tests"]
 markers = [
   "unit: isolated deterministic tests",
@@ -72,6 +95,35 @@ markers = [
 
 [tool.mypy]
 python_version = "3.12"
+mypy_path = ["src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+ignore_missing_imports = true
+show_error_codes = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.coverage.run]
+source = ["src/policy_workbench"]
+omit = [
+  "*/tests/*",
+  "*/test_*.py",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+  "pragma: no cover",
+  "def __repr__",
+  "raise AssertionError",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
+
+[tool.bandit]
+exclude_dirs = ["tests", "docs", "_working"]
+skips = ["B101"]

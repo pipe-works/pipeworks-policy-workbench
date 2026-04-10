@@ -25,49 +25,6 @@ def test_validate_command_parser() -> None:
     assert args.root == "/tmp/policies"
 
 
-def test_sync_command_parser_defaults() -> None:
-    """Sync command should expose dry-run defaults and option flags."""
-
-    parser = cli._build_parser()
-    args = parser.parse_args(["sync"])
-
-    assert args.command == "sync"
-    assert args.root is None
-    assert args.map is None
-    assert args.output_format == "text"
-    assert args.apply is False
-    assert args.yes is False
-    assert args.include_unchanged is False
-
-
-def test_sync_command_parser_custom_flags() -> None:
-    """Sync parser should accept all phase-2 flags."""
-
-    parser = cli._build_parser()
-    args = parser.parse_args(
-        [
-            "sync",
-            "--root",
-            "/tmp/source",
-            "--map",
-            "/tmp/map.yaml",
-            "--format",
-            "json",
-            "--apply",
-            "--yes",
-            "--include-unchanged",
-        ]
-    )
-
-    assert args.command == "sync"
-    assert args.root == "/tmp/source"
-    assert args.map == "/tmp/map.yaml"
-    assert args.output_format == "json"
-    assert args.apply is True
-    assert args.yes is True
-    assert args.include_unchanged is True
-
-
 def test_serve_command_parser_defaults() -> None:
     """Serve command should include host and optional port flags."""
 
@@ -142,55 +99,3 @@ def test_main_validate_delegates_to_command_module(monkeypatch) -> None:
 
     monkeypatch.setattr("policy_workbench.cli.run_validate", lambda *, root, out, err: 6)
     assert cli.main(["validate", "--root", "/tmp/policies"]) == 6
-
-
-def test_main_sync_delegates_to_command_module(monkeypatch) -> None:
-    """Sync command should return delegated command exit code and parsed args."""
-
-    captured: dict[str, object] = {}
-
-    def fake_run_sync(
-        *,
-        root: str | None,
-        map_path: str | None,
-        output_format: str,
-        apply: bool,
-        yes: bool,
-        include_unchanged: bool,
-        out,
-        err,
-    ) -> int:
-        captured["root"] = root
-        captured["map_path"] = map_path
-        captured["output_format"] = output_format
-        captured["apply"] = apply
-        captured["yes"] = yes
-        captured["include_unchanged"] = include_unchanged
-        return 7
-
-    monkeypatch.setattr("policy_workbench.cli.run_sync", fake_run_sync)
-
-    exit_code = cli.main(
-        [
-            "sync",
-            "--root",
-            "/tmp/source",
-            "--map",
-            "/tmp/map.yaml",
-            "--format",
-            "json",
-            "--apply",
-            "--yes",
-            "--include-unchanged",
-        ]
-    )
-
-    assert exit_code == 7
-    assert captured == {
-        "root": "/tmp/source",
-        "map_path": "/tmp/map.yaml",
-        "output_format": "json",
-        "apply": True,
-        "yes": True,
-        "include_unchanged": True,
-    }

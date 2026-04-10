@@ -259,26 +259,6 @@ class PolicyPublishRunProxyResponse(BaseModel):
     artifact: dict[str, Any]
 
 
-class SyncActionResponse(BaseModel):
-    """Serializable sync action row for dry-run/apply previews."""
-
-    target: str
-    relative_path: str
-    action: str
-    source_path: str | None
-    target_path: str | None
-    reason: str | None = None
-
-
-class SyncPlanResponse(BaseModel):
-    """Sync plan payload used by the impact panel in the web UI."""
-
-    source_root: str
-    map_path: str
-    counts: dict[str, int]
-    actions: list[SyncActionResponse]
-
-
 class HashDirectoryResponse(BaseModel):
     """One directory hash summary from canonical policy snapshot payload."""
 
@@ -296,63 +276,3 @@ class HashCanonicalResponse(BaseModel):
     file_count: int
     root_hash: str
     directories: list[HashDirectoryResponse]
-
-
-class HashTargetStatusResponse(BaseModel):
-    """Per-target hash alignment and drift counters for Step 1 UI."""
-
-    name: str
-    file_count: int
-    root_hash: str
-    matches_canonical: bool | None
-    missing_count: int
-    different_count: int
-    target_only_count: int
-
-
-class HashStatusResponse(BaseModel):
-    """Top-level hash alignment status across canonical and mirror targets."""
-
-    status: str
-    canonical: HashCanonicalResponse | None
-    canonical_url: str | None
-    canonical_error: str | None
-    targets: list[HashTargetStatusResponse]
-
-
-class SyncCompareVariantResponse(BaseModel):
-    """One source/target column entry for side-by-side sync comparison."""
-
-    label: str
-    kind: str
-    target: str | None
-    action: str | None
-    path: str
-    exists: bool
-    matches_source: bool
-    group_id: int
-    content: str | None
-
-
-class SyncCompareResponse(BaseModel):
-    """Side-by-side comparison payload for one relative path across repos."""
-
-    relative_path: str
-    source_root: str
-    focus_target: str | None
-    unique_variant_count: int
-    variants: list[SyncCompareVariantResponse]
-
-
-class SyncApplyRequest(BaseModel):
-    """Request payload for sync apply endpoint safety gate."""
-
-    confirm: bool = False
-
-
-class SyncApplyResponse(BaseModel):
-    """Result payload for apply-mode execution from the web UI."""
-
-    created: int
-    updated: int
-    skipped: int

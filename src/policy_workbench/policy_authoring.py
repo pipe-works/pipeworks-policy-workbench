@@ -15,7 +15,7 @@ from typing import cast
 from urllib.parse import quote
 from urllib.request import urlopen
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from . import mud_api_client
 from .mud_api_runtime import resolve_mud_api_runtime_config
@@ -430,7 +430,7 @@ def _run_policy_validate_request(
         if isinstance(errors, list) and errors:
             raise ValueError("; ".join(str(item) for item in errors))
         raise ValueError("Validation failed for policy payload.")
-    return cast(dict[str, object], validate_payload)
+    return validate_payload
 
 
 def _build_policy_content_from_raw(
@@ -700,7 +700,7 @@ def _request_json(
         method=method,
         url=url,
         timeout_seconds=timeout_seconds,
-        json_payload=cast(dict[str, object] | None, json_payload),
+        json_payload=json_payload,
         allow_not_found=allow_not_found,
         error_prefix="Mud policy API request failed",
         non_object_error_message=(

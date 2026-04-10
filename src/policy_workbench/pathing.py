@@ -11,25 +11,35 @@ from pathlib import Path
 
 ENV_POLICY_ROOT = "PW_POLICY_CANONICAL_ROOT"
 DEFAULT_WORLD_ID = "pipeworks_web"
+LUMINAL_WORKSPACE_ROOT = Path("/srv/work/pipeworks/repos")
 
 
 def _default_policy_root_candidates() -> tuple[Path, ...]:
     """Return deterministic default root candidates for workspace-local execution.
 
     Candidate order:
-    1. sibling mud-server repository in the common workspace layout
-    2. in-repo fallback path (useful for fixture-style local setups)
+    1. canonical Luminal PipeWorks workspace path
+    2. sibling mud-server repository in the common workspace layout
+    3. in-repo fallback path (useful for fixture-style local setups)
     """
 
     repo_root = Path(__file__).resolve().parents[2]
     workspace_root = repo_root.parent
 
+    luminal_default = (
+        LUMINAL_WORKSPACE_ROOT
+        / "pipeworks_mud_server"
+        / "data"
+        / "worlds"
+        / DEFAULT_WORLD_ID
+        / "policies"
+    )
     mud_server_default = (
         workspace_root / "pipeworks_mud_server" / "data" / "worlds" / DEFAULT_WORLD_ID / "policies"
     )
     local_repo_default = repo_root / "data" / "worlds" / DEFAULT_WORLD_ID / "policies"
 
-    return (mud_server_default, local_repo_default)
+    return (luminal_default, mud_server_default, local_repo_default)
 
 
 def _validate_existing_dir(path: Path, *, source_label: str) -> Path:

@@ -7,7 +7,7 @@ continues.
 
 from __future__ import annotations
 
-from typing import Protocol, cast
+from typing import Protocol
 from urllib.parse import quote
 
 from .mud_api_runtime import MudApiRuntimeConfig
@@ -141,7 +141,7 @@ def build_policy_object_detail_payload(
         path=f"/api/policies/{quote(policy_id, safe='')}",
         query_params=query_params,
     )
-    return cast(PolicyObjectDetailResponse, PolicyObjectDetailResponse.model_validate(payload))
+    return PolicyObjectDetailResponse.model_validate(payload)
 
 
 def build_policy_activation_scope_payload(
@@ -174,10 +174,7 @@ def build_policy_activation_scope_payload(
             "effective": "true" if effective else "false",
         },
     )
-    return cast(
-        PolicyActivationScopeResponse,
-        PolicyActivationScopeResponse.model_validate(payload),
-    )
+    return PolicyActivationScopeResponse.model_validate(payload)
 
 
 def build_policy_publish_run_payload(
@@ -199,10 +196,7 @@ def build_policy_publish_run_payload(
         path=f"/api/policy-publish/{publish_run_id}",
         query_params={},
     )
-    return cast(
-        PolicyPublishRunProxyResponse,
-        PolicyPublishRunProxyResponse.model_validate(payload),
-    )
+    return PolicyPublishRunProxyResponse.model_validate(payload)
 
 
 def build_policy_activation_set_payload(
@@ -248,7 +242,4 @@ def build_policy_activation_set_payload(
             "activated_by": normalized_activated_by or None,
         },
     )
-    return cast(
-        PolicyActivationSetResponse,
-        PolicyActivationSetResponse.model_validate(payload),
-    )
+    return PolicyActivationSetResponse.model_validate(payload)
