@@ -30,8 +30,7 @@ Current codebase responsibilities:
 What this repo is not:
 
 - not the canonical runtime authority for policy activation state
-- not automatically a Luminal hosted service just because it includes
-  `pw-policy serve`
+- not a replacement for `pipeworks_mud_server` or its admin/runtime authority
 - not a generic policy warehouse detached from mud-server runtime contracts
 
 ## Codebase Shape
@@ -59,6 +58,9 @@ Supporting layout:
     web/service behavior
 - `src/policy_workbench/templates/` and `src/policy_workbench/static/`
   - browser UI assets
+- `deploy/`
+  - checked-in systemd, nginx, and host-env templates for the Luminal service
+    surface
 
 ## Environment Model
 
@@ -77,10 +79,14 @@ Relevant host paths are:
 
 Current Luminal posture:
 
-- it is a host-preparation/admin-tool surface, not yet a live hosted service
-- it is now validated against a dedicated Luminal venv
-- any future promotion into a hostname/nginx/systemd-managed surface should be
-  treated as a separate explicit topology decision
+- it has a dedicated Luminal venv at
+  `/srv/work/pipeworks/venvs/pw-policy-workbench`
+- it is now a real browser-facing Luminal service at
+  `https://policies.pipeworks.luminal.local/`
+- the backend runs through `pipeworks-policy-workbench.service`
+  on `127.0.0.1:8040` behind nginx
+- local ad hoc `pw-policy serve` still exists, but it is no longer the only
+  supported browser entry path on Luminal
 
 Typical setup on Luminal:
 
@@ -130,6 +136,8 @@ Runtime mode behavior today:
   server-side in-memory session binding
 - policy API workflows require valid mud-server authentication and appropriate
   admin or superuser role access
+- the current Luminal service env points `server_dev` at the host-local
+  mud-server runtime on `http://127.0.0.1:18000`
 
 ## Canonical Policy Root Resolution
 
@@ -214,27 +222,56 @@ VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
 
 $VENV/bin/pw-policy serve
 $VENV/bin/pw-policy serve --host 127.0.0.1 --port 8010
+$VENV/bin/pw-policy serve --host 0.0.0.0 --port 8010
 ```
 
 Behavior:
 
 - runs the FastAPI workbench through Uvicorn
-- binds to `0.0.0.0` by default
+- binds to `127.0.0.1` by default
 - chooses an available port in `8000-8099`
 - honors `PW_POLICY_DEFAULT_PORT` as a preferred port when set
+- use `--host 0.0.0.0` only for explicit ad hoc LAN/debug exposure
+
+## Luminal Service
+
+The workbench now has a real Luminal browser surface:
+
+- hostname: `https://policies.pipeworks.luminal.local/`
+- systemd unit: `pipeworks-policy-workbench.service`
+- backend bind: `127.0.0.1:8040`
+- nginx front door: `/etc/nginx/sites-available/policies.pipeworks.luminal.local`
+- host env file: `/etc/pipeworks/policy-workbench/policy-workbench.env`
+
+Checked-in service templates live in:
+
+- `deploy/systemd/pipeworks-policy-workbench.service`
+- `deploy/nginx/policies.pipeworks.luminal.local`
+- `deploy/etc/pipeworks/policy-workbench/policy-workbench.env.example`
+
+The current service posture is intentionally narrow:
+
+- nginx and the HTTPS hostname are the canonical browser entrypoint
+- the backend stays localhost-bound
+- unauthenticated browser access is expected to render the shell but block
+  policy inventory and save workflows until a valid mud-server admin or
+  superuser session is established
 
 ## Safety Boundaries
 
 - Keep runtime-mode selection explicit so users can tell which mud-server
   target is active.
 - Preserve clear auth/permission behavior for mud-server API failures.
-- Do not assume local serve behavior implies a host-managed service boundary.
+- Keep the backend localhost-bound in steady state on Luminal.
+- Do not blur the workbench surface into the existing mud-server admin surface.
+- Do not assume browser reachability changes the upstream authority boundary:
+  mud-server still owns canonical runtime policy behavior.
 
 ## Current Documentation Position
 
-The repo is now documented around the shared-host Luminal model, with the
-legacy mirror/sync workflow removed in favor of the API-first canonical
-authoring model.
+The repo is now documented around the shared-host Luminal model, the live
+`policies.pipeworks.luminal.local` service surface, and the API-first
+canonical authoring model.
 
 Related Luminal documentation:
 
