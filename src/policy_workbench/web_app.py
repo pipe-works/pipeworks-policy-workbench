@@ -84,7 +84,6 @@ class _RuntimeBrowserSession:
 def create_web_app(
     *,
     source_root_override: str | None = None,
-    map_path_override: str | None = None,
 ) -> FastAPI:
     """Create configured FastAPI app instance for UI and API routes."""
 

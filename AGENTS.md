@@ -19,27 +19,73 @@ Mandatory requirements:
 
 ## Project Summary
 
-Pipeworks Policy Workbench is a dedicated cross-repository policy operations tool.
+Pipeworks Policy Workbench is a local authoring and operations surface for
+canonical policy work against mud-server APIs.
 
-The repository is intended to centralize:
-- policy file editing workflows
-- prompt-bearing policy extraction rules
-- schema and semantic validation
-- controlled mirroring/sync into downstream repos (for example image generator,
-  mud server, and descriptor lab)
+The repository currently contains two tightly related surfaces:
+
+- a CLI exposed as `pw-policy`
+- a FastAPI web application used for interactive policy authoring and runtime
+  session management
+
+The current codebase is not a generic policy warehouse and not a long-running
+host topology definition by itself. Its concrete responsibilities are:
+
+- present policy inventory and object-detail workflows through a web UI
+- authenticate to mud-server policy APIs and keep browser runtime sessions
+- validate and save policy variants through mud-server-backed flows
+- inspect local policy trees for health and validation issues
+
+## Codebase Shape
+
+Primary package layout under `src/policy_workbench/`:
+
+- `cli.py`
+  - top-level argument parsing for `doctor`, `validate`, and `serve`
+- `server.py`
+  - Uvicorn startup, port selection, and fallback ASGI app behavior
+- `web_app.py`
+  - FastAPI app factory, HTML routes, API routes, and browser session cookie
+    handling
+- `runtime_mode.py`
+  - active mud-server mode selection and URL override handling
+- `policy_authoring.py`
+  - save/validate authoring helpers and runtime config resolution
+- `mud_api_client.py` and `mud_api_runtime.py`
+  - mud-server authentication and policy API interactions
+- `web_*services.py` and `web_models.py`
+  - web-route payload shaping and response models
+- `tree_model.py`, `validators.py`, `extractors.py`, `models.py`
+  - local policy tree scanning and validation support
+- `pathing.py`
+  - canonical root/path resolution logic
+- `env_loader.py`
+  - lightweight `.env` loading without extra dependency requirements
+
+Supporting repo layout:
+
+- `tests/unit/`
+  - unit coverage across CLI, runtime mode, web services, validation, and
+    packaging behavior
+- `src/policy_workbench/templates/` and `src/policy_workbench/static/`
+  - UI template and browser assets
 
 ## Environment
 
-This repo uses `pyenv`.
+This repo currently uses `pyenv` for workstation-style development, but the
+checked-in repo does not currently rely on a committed `.python-version` file.
 
-- `.python-version` is set to `ppw`
-- prefer `pyenv exec ...` for all Python, pip, pytest, ruff, black, and mypy commands
+- prefer `pyenv exec ...` for Python, pip, pytest, ruff, black, and mypy
+- `.example.env` documents local runtime defaults for mud-server URLs and
+  preferred serve port
+- `.env` is loaded automatically on CLI startup when present
 
 Typical setup:
 
 ```bash
 pyenv local ppw
 pyenv exec pip install -e ".[dev]"
+cp .example.env .env
 ```
 
 ## Commands
@@ -54,12 +100,69 @@ pyenv exec mypy src
 pyenv exec pw-policy --help
 ```
 
+Important operational commands:
+
+```bash
+pyenv exec pw-policy doctor
+pyenv exec pw-policy validate
+pyenv exec pw-policy serve
+```
+
+Current command behavior that matters:
+
+- `doctor`
+  - scans the resolved policy root and prints compact health counts
+- `validate`
+  - emits deterministic line-oriented issue output and summary counts
+- `serve`
+  - runs the FastAPI workbench through Uvicorn
+  - binds to `0.0.0.0` by default
+  - chooses an available port in `8000-8099`
+  - respects `PW_POLICY_DEFAULT_PORT` as a preferred port when set
+
+## Runtime Model
+
+The current interactive runtime model is mud-server API first.
+
+- supported runtime modes are `server_dev` and `server_prod`
+- both modes resolve to explicit HTTP(S) mud-server base URLs
+- runtime URL defaults come from environment variables, then in-memory
+  overrides set through the application
+- the web app stores browser session bindings server-side and issues a hardened
+  cookie to preserve that runtime session across refreshes
+- route behavior should keep auth and permission failures clearly separated
+  (`401` vs `403`) because the UI depends on those coarse categories
+
+## Working Rules
+
+- Keep the CLI thin. Put behavior in dedicated modules rather than growing
+  `cli.py`.
+- Preserve deterministic output for validation reporting. Downstream automation
+  and tests depend on stable ordering and wording.
+- Keep runtime mode semantics explicit. Do not add hidden fallback behavior that
+  obscures which mud-server target is active.
+- Prefer conservative environment handling. Existing exported environment
+  variables should continue to win over `.env` file values unless there is a
+  strong reason to change that contract.
+- Keep browser session and cookie behavior aligned with the current security
+  posture in `web_app.py`.
+
+## Testing Expectations
+
+- Add or update tests for every behavior change.
+- When changing CLI behavior, update or extend the command/unit coverage first.
+- When changing API/web route behavior, update the relevant `web_*` tests.
+- When changing pathing behavior, add focused deterministic tests that cover
+  both happy path and failure boundaries.
+- When changing runtime-mode or auth behavior, verify status-code expectations
+  remain stable.
+
 Useful targeted commands:
 
 ```bash
-pyenv exec pytest tests/unit -q
-pyenv exec ruff check src tests --fix
-pyenv exec black src tests
+pyenv exec pytest tests/unit/test_cli.py -q
+pyenv exec pytest tests/unit/test_runtime_mode.py -q
+pyenv exec pytest tests/unit/test_web_api.py -q
 ```
 
 ## GitHub and Commit Rules
@@ -80,28 +183,12 @@ Before PR creation or merge:
 3. Ensure required checks remain intact (`All Checks Passed`, `Secret Scan (Gitleaks)`).
 4. Include evidence for CI behavior changes (run IDs, timing deltas, check states).
 
-## Architecture Notes
-
-- The CLI entry point is `pw-policy`.
-- Policy parsing and extraction logic should stay deterministic and test-driven.
-- Cross-repo path mapping must be explicit, versioned, and reviewable.
-- Sync actions should support dry-run mode and machine-readable reports.
-
-## Constraints That Matter
-
-- Treat this repository as the policy workflow source of truth, not downstream app repos.
-- Favor additive, auditable sync operations over destructive updates.
-- Keep extraction behavior strict and predictable to minimize policy drift.
-- Add tests for every rule that transforms policy content.
-
-## Working Style
-
-- Prefer small, targeted changes.
-- Add or update tests with behavior changes.
-- Keep docs and automation contracts aligned.
-- Use `_working/` for handover notes and short-lived planning artifacts.
-
 ## Notes For Future Agents
 
-- Keep this file aligned with org-wide foundation docs when those are updated.
-- If sync contracts change, update README and any CLI docs in the same PR.
+- Keep this file aligned with the actual repo, not with older adjacent
+  repositories or aspirational architecture.
+- If the Luminal host model changes, update README and host-facing docs in the
+  same change rather than leaving environment guidance split across locations.
+- If `serve` becomes a deliberately hosted service later, document that as an
+  explicit topology decision instead of letting the default local-dev behavior
+  imply production posture.

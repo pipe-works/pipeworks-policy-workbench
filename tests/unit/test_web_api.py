@@ -34,22 +34,6 @@ def _write_text(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _write_mirror_map(path: Path, source_root: Path, target_root: Path) -> None:
-    """Create a valid mirror-map config for endpoint integration tests."""
-
-    _write_text(
-        path,
-        (
-            "version: 1\n"
-            "source:\n"
-            f"  root: {source_root}\n"
-            "targets:\n"
-            "  - name: mirror-target\n"
-            f"    root: {target_root}\n"
-        ),
-    )
-
-
 def _build_client(tmp_path: Path) -> tuple[TestClient, Path, Path]:
     """Build a configured ``TestClient`` plus source/target fixture roots."""
 
@@ -69,13 +53,7 @@ def _build_client(tmp_path: Path) -> tuple[TestClient, Path, Path]:
     _write_text(target_root / "image" / "prompts" / "shared.txt", "same content")
     _write_text(target_root / "image" / "prompts" / "extra.txt", "target only")
 
-    mirror_map_path = tmp_path / "mirror_map.yaml"
-    _write_mirror_map(mirror_map_path, source_root=source_root, target_root=target_root)
-
-    app = create_web_app(
-        source_root_override=str(source_root),
-        map_path_override=str(mirror_map_path),
-    )
+    app = create_web_app(source_root_override=str(source_root))
     return TestClient(app, base_url="https://testserver"), source_root, target_root
 
 

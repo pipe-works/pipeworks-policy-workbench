@@ -200,7 +200,7 @@ def run_server(
     """Run the policy workbench server with 8000-range port auto-selection."""
 
     try:
-        import uvicorn  # type: ignore[import-not-found]
+        import uvicorn
     except ImportError as exc:
         raise RuntimeError(
             "uvicorn is required to run the server. Install with `pyenv exec pip install uvicorn`."

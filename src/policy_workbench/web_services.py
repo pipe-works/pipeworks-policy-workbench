@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError
 from urllib.request import urlopen
 
@@ -69,6 +70,7 @@ compute_payload_hash = _compute_payload_hash
 #    between tools as policy workflows are tightened around API-only authoring.
 # 3. The plain `compute_payload_hash` fallback path is preserved so local dev
 #    still behaves deterministically if optional IPC helper symbols are absent.
+ipc_hashing: Any | None
 try:
     import pipeworks_ipc.hashing as ipc_hashing
 except ImportError:  # pragma: no cover - import path is expected in normal runtime
@@ -538,16 +540,3 @@ def _validate_supported_editor_path(relative_path: str) -> None:
 def _read_optional_text(path: Path | None) -> str | None:
     """Read UTF-8 text from ``path`` when available, otherwise return ``None``."""
     return web_diagnostics_services.read_optional_text(path)
-
-
-def _content_signature(*, source_content: str | None, exists: bool) -> str:
-    """Build deterministic content signature used for grouping variants."""
-    return web_diagnostics_services.content_signature(
-        source_content=source_content,
-        exists=exists,
-    )
-
-
-def _canonical_source_label(source_root: Path) -> str:
-    """Build human-readable source column label for compare modal."""
-    return web_diagnostics_services.canonical_source_label(source_root)
