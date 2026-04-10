@@ -31,7 +31,7 @@ def test_serve_command_parser_defaults() -> None:
     parser = cli._build_parser()
     args = parser.parse_args(["serve"])
     assert args.command == "serve"
-    assert args.host == "0.0.0.0"
+    assert args.host == "127.0.0.1"
     assert args.port is None
 
 
@@ -81,7 +81,7 @@ def test_main_serve_loads_dotenv_before_run_server(monkeypatch, tmp_path) -> Non
 
     assert exit_code == 0
     assert captured == {
-        "host": "0.0.0.0",
+        "host": "127.0.0.1",
         "requested_port": None,
         "env_port": "8019",
     }

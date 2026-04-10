@@ -4,10 +4,12 @@
 
 Read and apply these before repo-specific instructions:
 
-- Local workspace path: `../.github/.github/docs/AGENT_FOUNDATION.md`
-- Local workspace path: `../.github/.github/docs/TEST_TAGGING_AND_GITHUB_CHECKLIST.md`
 - Canonical URL: `https://github.com/pipe-works/.github/blob/main/.github/docs/AGENT_FOUNDATION.md`
 - Canonical URL: `https://github.com/pipe-works/.github/blob/main/.github/docs/TEST_TAGGING_AND_GITHUB_CHECKLIST.md`
+
+Local copies were previously referenced here, but they are not currently
+present in this repo checkout. Use the canonical org URLs unless a local
+workspace copy is restored explicitly.
 
 Mandatory requirements:
 
@@ -27,6 +29,7 @@ The repository currently contains two tightly related surfaces:
 - a CLI exposed as `pw-policy`
 - a FastAPI web application used for interactive policy authoring and runtime
   session management
+- a checked-in Luminal deploy surface for systemd/nginx-backed hosting
 
 The current codebase is not a generic policy warehouse and not a long-running
 host topology definition by itself. Its concrete responsibilities are:
@@ -69,6 +72,9 @@ Supporting repo layout:
     packaging behavior
 - `src/policy_workbench/templates/` and `src/policy_workbench/static/`
   - UI template and browser assets
+- `deploy/`
+  - checked-in Luminal service templates for systemd, nginx, and host env
+    configuration
 
 ## Environment
 
@@ -77,6 +83,9 @@ This repo now uses the Luminal host layout as its primary execution model.
 - workspace root: `/srv/work/pipeworks`
 - repo path: `/srv/work/pipeworks/repos/pipeworks-policy-workbench`
 - dedicated venv: `/srv/work/pipeworks/venvs/pw-policy-workbench`
+- live hostname: `https://policies.pipeworks.luminal.local/`
+- systemd unit: `pipeworks-policy-workbench.service`
+- localhost backend bind: `127.0.0.1:8040`
 - `.example.env` documents local runtime defaults for mud-server URLs and
   preferred serve port
 - `.env` is loaded automatically on CLI startup when present
@@ -122,9 +131,26 @@ Current command behavior that matters:
   - emits deterministic line-oriented issue output and summary counts
 - `serve`
   - runs the FastAPI workbench through Uvicorn
-  - binds to `0.0.0.0` by default
+  - binds to `127.0.0.1` by default
   - chooses an available port in `8000-8099`
   - respects `PW_POLICY_DEFAULT_PORT` as a preferred port when set
+  - supports `--host 0.0.0.0` only for explicit ad hoc exposure, not normal
+    Luminal service posture
+
+## Luminal Service Shape
+
+The current Luminal service boundary for this repo is:
+
+- nginx hostname: `policies.pipeworks.luminal.local`
+- backend port: `127.0.0.1:8040`
+- service unit: `pipeworks-policy-workbench.service`
+- host env file: `/etc/pipeworks/policy-workbench/policy-workbench.env`
+
+Checked-in service templates live under:
+
+- `deploy/systemd/pipeworks-policy-workbench.service`
+- `deploy/nginx/policies.pipeworks.luminal.local`
+- `deploy/etc/pipeworks/policy-workbench/policy-workbench.env.example`
 
 ## Runtime Model
 
@@ -152,6 +178,11 @@ The current interactive runtime model is mud-server API first.
   strong reason to change that contract.
 - Keep browser session and cookie behavior aligned with the current security
   posture in `web_app.py`.
+- Preserve the localhost-backend-plus-nginx-front-door service boundary on
+  Luminal unless an explicit topology change says otherwise.
+- Treat `policies.pipeworks.luminal.local` as distinct from the existing
+  mud-server admin and creator surfaces; do not silently reuse those trust
+  boundaries.
 
 ## Testing Expectations
 
@@ -197,6 +228,6 @@ Before PR creation or merge:
   repositories or aspirational architecture.
 - If the Luminal host model changes, update README, AGENTS, and host-facing docs in the
   same change rather than leaving environment guidance split across locations.
-- If `serve` becomes a deliberately hosted service later, document that as an
-  explicit topology decision instead of letting the default local-dev behavior
-  imply production posture.
+- If the service topology changes later, update the checked-in `deploy/`
+  templates and the host-facing docs in the same change rather than relying on
+  host-only drift.

@@ -37,8 +37,8 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_parser = subparsers.add_parser("serve", help="Run local policy workbench web server")
     serve_parser.add_argument(
         "--host",
-        default="0.0.0.0",
-        help="Host interface to bind (default: 0.0.0.0)",
+        default="127.0.0.1",
+        help="Host interface to bind (default: 127.0.0.1)",
     )
     serve_parser.add_argument(
         "--port",
