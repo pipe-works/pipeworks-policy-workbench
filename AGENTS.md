@@ -72,10 +72,11 @@ Supporting repo layout:
 
 ## Environment
 
-This repo currently uses `pyenv` for workstation-style development, but the
-checked-in repo does not currently rely on a committed `.python-version` file.
+This repo now uses the Luminal host layout as its primary execution model.
 
-- prefer `pyenv exec ...` for Python, pip, pytest, ruff, black, and mypy
+- workspace root: `/srv/work/pipeworks`
+- repo path: `/srv/work/pipeworks/repos/pipeworks-policy-workbench`
+- dedicated venv: `/srv/work/pipeworks/venvs/pw-policy-workbench`
 - `.example.env` documents local runtime defaults for mud-server URLs and
   preferred serve port
 - `.env` is loaded automatically on CLI startup when present
@@ -83,8 +84,9 @@ checked-in repo does not currently rely on a committed `.python-version` file.
 Typical setup:
 
 ```bash
-pyenv local ppw
-pyenv exec pip install -e ".[dev]"
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pip install -e ".[dev,docs]"
 cp .example.env .env
 ```
 
@@ -93,19 +95,23 @@ cp .example.env .env
 Run these from the repository root:
 
 ```bash
-pyenv exec pytest -q
-pyenv exec ruff check src tests
-pyenv exec black --check src tests
-pyenv exec mypy src
-pyenv exec pw-policy --help
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pytest -q
+$VENV/bin/ruff check src tests
+$VENV/bin/black --check .
+$VENV/bin/mypy src
+$VENV/bin/pw-policy --help
 ```
 
 Important operational commands:
 
 ```bash
-pyenv exec pw-policy doctor
-pyenv exec pw-policy validate
-pyenv exec pw-policy serve
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pw-policy doctor
+$VENV/bin/pw-policy validate
+$VENV/bin/pw-policy serve
 ```
 
 Current command behavior that matters:
@@ -160,9 +166,11 @@ The current interactive runtime model is mud-server API first.
 Useful targeted commands:
 
 ```bash
-pyenv exec pytest tests/unit/test_cli.py -q
-pyenv exec pytest tests/unit/test_runtime_mode.py -q
-pyenv exec pytest tests/unit/test_web_api.py -q
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pytest tests/unit/test_cli.py -q
+$VENV/bin/pytest tests/unit/test_runtime_mode.py -q
+$VENV/bin/pytest tests/unit/test_web_api.py -q
 ```
 
 ## GitHub and Commit Rules
@@ -187,7 +195,7 @@ Before PR creation or merge:
 
 - Keep this file aligned with the actual repo, not with older adjacent
   repositories or aspirational architecture.
-- If the Luminal host model changes, update README and host-facing docs in the
+- If the Luminal host model changes, update README, AGENTS, and host-facing docs in the
   same change rather than leaving environment guidance split across locations.
 - If `serve` becomes a deliberately hosted service later, document that as an
   explicit topology decision instead of letting the default local-dev behavior
