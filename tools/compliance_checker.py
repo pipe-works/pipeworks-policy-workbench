@@ -31,7 +31,7 @@ Usage:
     python compliance_checker.py --fix
 
 Example:
-    $ python compliance_checker.py ~/pipe-works-development/pipeworks_mud_server
+    $ python compliance_checker.py /srv/work/pipeworks/repos/pipeworks_mud_server
 
     Pipe-Works Compliance Report
     ============================

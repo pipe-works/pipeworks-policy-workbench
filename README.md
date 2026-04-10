@@ -60,56 +60,48 @@ Supporting layout:
 - `src/policy_workbench/templates/` and `src/policy_workbench/static/`
   - browser UI assets
 
-## Environment Models
+## Environment Model
 
-The repo currently has two environment stories:
+This repo now treats the Luminal host layout as the primary execution model.
 
-- workstation/developer setup based on `pyenv`
-- Luminal host preparation under `/srv/work/pipeworks`
+It is documented as part of the shared PipeWorks workspace rooted at:
 
-Those are related but not identical. This README keeps both visible so the repo
-can be used locally without pretending the Luminal host model does not exist.
+- `/srv/work/pipeworks`
 
-### Workstation Setup
+Relevant host paths are:
 
-The repository currently expects `pyenv` in normal developer workflows.
+- repos: `/srv/work/pipeworks/repos`
+- venvs: `/srv/work/pipeworks/venvs`
+- this repo: `/srv/work/pipeworks/repos/pipeworks-policy-workbench`
+- dedicated venv: `/srv/work/pipeworks/venvs/pw-policy-workbench`
+
+Current Luminal posture:
+
+- it is a host-preparation/admin-tool surface, not yet a live hosted service
+- it is now validated against a dedicated Luminal venv
+- any future promotion into a hostname/nginx/systemd-managed surface should be
+  treated as a separate explicit topology decision
+
+Typical setup on Luminal:
 
 ```bash
-pyenv local ppw
-pyenv exec pip install -e ".[dev]"
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pip install -e ".[dev,docs]"
 cp .example.env .env
 ```
 
 Run common validation commands with:
 
 ```bash
-pyenv exec pytest -q
-pyenv exec ruff check src tests
-pyenv exec black --check src tests
-pyenv exec mypy src
-pyenv exec pw-policy --help
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pytest -q
+$VENV/bin/ruff check src tests
+$VENV/bin/black --check .
+$VENV/bin/mypy src
+$VENV/bin/pw-policy --help
 ```
-
-### Luminal Host Direction
-
-For Luminal, this repo is being documented as part of the shared PipeWorks
-workspace rooted at:
-
-- `/srv/work/pipeworks`
-
-Relevant host paths:
-
-- repos: `/srv/work/pipeworks/repos`
-- venvs: `/srv/work/pipeworks/venvs`
-
-Current Luminal posture:
-
-- the repo is present at
-  `/srv/work/pipeworks/repos/pipeworks-policy-workbench`
-- it is a host-preparation/admin-tool surface, not yet a live hosted service
-- it is not yet documented as wired to a dedicated Luminal venv
-- any future promotion into a hostname/nginx/systemd-managed surface should be
-  treated as a separate explicit topology decision
 
 ## Runtime Configuration
 
@@ -163,28 +155,34 @@ the host-local canonical policy layout is documented more fully.
 
 ## Commands
 
-Run these from the repository root.
+Run these from the repository root with the Luminal venv.
 
 General checks:
 
 ```bash
-pyenv exec pytest -q
-pyenv exec ruff check src tests
-pyenv exec black --check src tests
-pyenv exec mypy src
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pytest -q
+$VENV/bin/ruff check src tests
+$VENV/bin/black --check .
+$VENV/bin/mypy src
 ```
 
 CLI help:
 
 ```bash
-pyenv exec pw-policy --help
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pw-policy --help
 ```
 
 Doctor:
 
 ```bash
-pyenv exec pw-policy doctor
-pyenv exec pw-policy doctor --root /path/to/policies
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pw-policy doctor
+$VENV/bin/pw-policy doctor --root /path/to/policies
 ```
 
 Behavior:
@@ -197,8 +195,10 @@ Behavior:
 Validate:
 
 ```bash
-pyenv exec pw-policy validate
-pyenv exec pw-policy validate --root /path/to/policies
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pw-policy validate
+$VENV/bin/pw-policy validate --root /path/to/policies
 ```
 
 Behavior:
@@ -210,8 +210,10 @@ Behavior:
 Serve:
 
 ```bash
-pyenv exec pw-policy serve
-pyenv exec pw-policy serve --host 127.0.0.1 --port 8010
+VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+
+$VENV/bin/pw-policy serve
+$VENV/bin/pw-policy serve --host 127.0.0.1 --port 8010
 ```
 
 Behavior:
@@ -230,9 +232,9 @@ Behavior:
 
 ## Current Documentation Position
 
-The repo is currently in transition from a workstation-first description toward
-a clearer shared-host model for Luminal, with legacy mirror/sync workflow code
-being removed in favor of the API-first canonical authoring model.
+The repo is now documented around the shared-host Luminal model, with the
+legacy mirror/sync workflow removed in favor of the API-first canonical
+authoring model.
 
 Related Luminal documentation:
 

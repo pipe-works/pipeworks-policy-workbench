@@ -203,7 +203,8 @@ def run_server(
         import uvicorn
     except ImportError as exc:
         raise RuntimeError(
-            "uvicorn is required to run the server. Install with `pyenv exec pip install uvicorn`."
+            "uvicorn is required to run the server. Install it in the active environment, "
+            "for example `/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pip install uvicorn`."
         ) from exc
 
     resolved_requested_port = (
