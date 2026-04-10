@@ -75,4 +75,3 @@ def test_run_validate_returns_0_for_clean_prompt_artifact(tmp_path: Path) -> Non
     assert exit_code == 0
     assert "summary:" in out.getvalue()
     assert err.getvalue() == ""
-

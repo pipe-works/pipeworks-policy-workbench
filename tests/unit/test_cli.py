@@ -99,4 +99,3 @@ def test_main_validate_delegates_to_command_module(monkeypatch) -> None:
 
     monkeypatch.setattr("policy_workbench.cli.run_validate", lambda *, root, out, err: 6)
     assert cli.main(["validate", "--root", "/tmp/policies"]) == 6
-

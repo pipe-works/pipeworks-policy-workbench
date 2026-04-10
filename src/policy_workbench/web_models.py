@@ -276,4 +276,3 @@ class HashCanonicalResponse(BaseModel):
     file_count: int
     root_hash: str
     directories: list[HashDirectoryResponse]
-
