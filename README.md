@@ -1,283 +1,185 @@
+[![CI](https://github.com/pipe-works/pipeworks-policy-workbench/actions/workflows/ci.yml/badge.svg)](https://github.com/pipe-works/pipeworks-policy-workbench/actions/workflows/ci.yml) [![codecov](https://codecov.io/gh/pipe-works/pipeworks-policy-workbench/branch/main/graph/badge.svg)](https://codecov.io/gh/pipe-works/pipeworks-policy-workbench) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0) [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/) [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+
 # pipeworks-policy-workbench
 
-Policy authoring and validation workbench for mud-server canonical policy APIs.
+`pipeworks-policy-workbench` is the operator and developer workbench for
+PipeWorks policy objects. It combines a CLI and a FastAPI web application so
+policy files and mud-server policy APIs can be inspected, validated, and worked
+with without editing downstream artifacts by hand.
 
-## Purpose
+## PipeWorks Workspace
 
-`pipeworks-policy-workbench` is a focused operator and developer tool for
-working with canonical policy objects without editing downstream artifacts by
-hand.
+These repositories are designed to live inside a shared PipeWorks workspace
+rooted at `/srv/work/pipeworks`.
 
-The repository currently provides two main surfaces:
+- `repos/` contains source checkouts only.
+- `venvs/` contains per-project virtual environments such as `pw-mud-server`.
+- `runtime/` contains mutable runtime state such as databases, exports, session
+  files, and caches.
+- `logs/` contains service-owned log output when a project writes logs outside
+  the process manager.
+- `config/` contains workspace-level configuration files that should not be
+  treated as source.
+- `bin/` contains optional workspace helper scripts.
+- `home/` is reserved for workspace-local user data when a project needs it.
 
-- `pw-policy`, a CLI for diagnostics, validation, and local serving
-- a FastAPI web application for interactive policy workflows backed by
-  mud-server APIs
+Across the PipeWorks ecosphere, the rule is simple: keep source in `repos/`,
+keep mutable state outside the repo checkout, and use explicit paths between
+repos when one project depends on another.
 
-The workbench is designed to reduce policy-editing mistakes by keeping
-mud-server policy objects and policy API contracts at the center of the
-workflow.
+## What This Repo Owns
 
-## What The Repo Does
+This repository is the source of truth for:
 
-Current codebase responsibilities:
+- the `pw-policy` CLI
+- the local FastAPI web application for policy inventory and authoring flows
+- mud-server policy API client logic and runtime-mode selection
+- local policy-tree inspection and validation helpers
 
-- present policy inventory and policy-object detail views through the web app
-- authenticate to mud-server policy APIs for admin/superuser workflows
-- validate and save policy variants through mud-server-backed flows
-- inspect local canonical policy trees for structural/semantic issues
+This repository does not own:
 
-What this repo is not:
+- canonical runtime policy activation state
+- mud-server itself
+- policy artifact exchange storage
 
-- not the canonical runtime authority for policy activation state
-- not a replacement for `pipeworks_mud_server` or its admin/runtime authority
-- not a generic policy warehouse detached from mud-server runtime contracts
+## Main Surfaces
 
-## Codebase Shape
+### CLI
 
-Primary package layout under `src/policy_workbench/`:
+The `pw-policy` command currently provides:
 
-- `cli.py`
-  - CLI entry point for `doctor`, `validate`, and `serve`
-- `server.py`
-  - Uvicorn startup, serve-port selection, and fallback ASGI app behavior
-- `web_app.py`
-  - FastAPI app factory, HTML routes, API routes, and browser session handling
-- `runtime_mode.py`
-  - active mud-server mode selection and URL override handling
-- `mud_api_client.py` and `mud_api_runtime.py`
-  - mud-server authentication and policy API interactions
-- `policy_authoring.py`
-  - validation/save helpers for policy object workflows
-- `tree_model.py`, `validators.py`, `extractors.py`, `models.py`
-  - local policy-tree scanning and validation support
-Supporting layout:
+- `doctor` for repository health and policy-tree diagnostics
+- `validate` for deterministic validation output
+- `serve` for running the local web app
 
-- `tests/unit/`
-  - unit coverage across CLI, runtime mode, validation, packaging, and
-    web/service behavior
-- `src/policy_workbench/templates/` and `src/policy_workbench/static/`
-  - browser UI assets
-- `deploy/`
-  - checked-in systemd, nginx, and host-env templates for the Luminal service
-    surface
+### Web App
 
-## Environment Model
+The FastAPI web app exposes browser workflows for:
 
-This repo now treats the Luminal host layout as the primary execution model.
+- policy inventory browsing
+- local source inspection
+- mud-server-backed policy save/publish/activation flows
+- runtime mode switching against explicit mud-server API base URLs
 
-It is documented as part of the shared PipeWorks workspace rooted at:
+## Repository Layout
 
-- `/srv/work/pipeworks`
+- `src/policy_workbench/cli.py` top-level CLI entry point
+- `src/policy_workbench/server.py` Uvicorn startup and port selection
+- `src/policy_workbench/web_app.py` FastAPI app factory and routes
+- `src/policy_workbench/mud_api_client.py` and related runtime modules
+- `src/policy_workbench/policy_authoring.py` authoring and validation helpers
+- `src/policy_workbench/static/` and `templates/` browser assets
+- `tests/unit/` unit coverage across CLI, validation, and web behavior
+- `deploy/` example deployment assets
 
-Relevant host paths are:
+## Quick Start
 
-- repos: `/srv/work/pipeworks/repos`
-- venvs: `/srv/work/pipeworks/venvs`
-- this repo: `/srv/work/pipeworks/repos/pipeworks-policy-workbench`
-- dedicated venv: `/srv/work/pipeworks/venvs/pw-policy-workbench`
+### Requirements
 
-Current Luminal posture:
+- Python `>=3.12`
+- a PipeWorks workspace rooted at `/srv/work/pipeworks`
+- Git access to the private `pipeworks-ipc` dependency referenced by
+  `pyproject.toml`
+- access to a running `pipeworks_mud_server` instance if you want live API
+  workflows rather than local-only validation
 
-- it has a dedicated Luminal venv at
-  `/srv/work/pipeworks/venvs/pw-policy-workbench`
-- it is now a real browser-facing Luminal service at
-  `https://policies.pipeworks.luminal.local/`
-- the backend runs through `pipeworks-policy-workbench.service`
-  on `127.0.0.1:8040` behind nginx
-- local ad hoc `pw-policy serve` still exists, but it is no longer the only
-  supported browser entry path on Luminal
-
-Typical setup on Luminal:
+### Install
 
 ```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
+python3 -m venv /srv/work/pipeworks/venvs/pw-policy-workbench
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pip install -e ".[dev]"
+```
 
-$VENV/bin/pip install -e ".[dev,docs]"
+If you want docs tooling too:
+
+```bash
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pip install -e ".[dev,docs]"
+```
+
+### Prepare Runtime Environment
+
+The CLI will load `.env` automatically when present. A typical workspace setup
+is:
+
+```bash
 cp .example.env .env
 ```
 
-Run common validation commands with:
-
-```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pytest -q
-$VENV/bin/ruff check src tests
-$VENV/bin/black --check .
-$VENV/bin/mypy src
-$VENV/bin/pw-policy --help
-```
-
-## Runtime Configuration
-
-The CLI loads `.env` automatically when present. Existing exported environment
-variables still take precedence over `.env` values.
-
-The example environment file currently exposes:
+The shipped example covers:
 
 - `PW_POLICY_DEV_MUD_API_BASE_URL`
-  - default mud-server URL for the `server_dev` runtime mode
-- `PW_POLICY_DEFAULT_PORT`
-  - preferred local serve port in `8000-8099`
 - `PW_POLICY_CANONICAL_ROOT`
-  - optional canonical policy root override used by CLI validation flows
+- `PW_POLICY_DEFAULT_PORT`
 
-`PW_POLICY_PROD_MUD_API_BASE_URL` remains available in code, but the example
-environment file does not currently set it because the production target is in
-transition and should be configured deliberately rather than copied from stale
-defaults.
+By default, the canonical-root example points at:
 
-Runtime mode behavior today:
+- `/srv/work/pipeworks/repos/pipeworks_mud_server/data/worlds/pipeworks_web/policies`
 
-- supported modes are `server_dev` and `server_prod`
-- both modes target explicit HTTP(S) mud-server API base URLs
-- browser runtime session state is preserved with a hardened cookie plus
-  server-side in-memory session binding
-- policy API workflows require valid mud-server authentication and appropriate
-  admin or superuser role access
-- the current Luminal service env points `server_dev` at the host-local
-  mud-server runtime on `http://127.0.0.1:18000`
+Override that when your active policy source differs.
 
-## Canonical Policy Root Resolution
-
-CLI commands that scan local policy content resolve the canonical policy root in
-this order:
-
-1. `--root`
-2. `PW_POLICY_CANONICAL_ROOT`
-3. workspace-local defaults
-
-Current default candidate order in code:
-
-1. canonical Luminal workspace path:
-   `/srv/work/pipeworks/repos/pipeworks_mud_server/data/worlds/pipeworks_web/policies`
-2. sibling repo path:
-   `/.../pipeworks_mud_server/data/worlds/pipeworks_web/policies`
-3. in-repo fallback path:
-   `/.../pipeworks-policy-workbench/data/worlds/pipeworks_web/policies`
-
-On Luminal, that means commands such as `doctor` and `validate` should usually
-be run with an explicit root or an exported `PW_POLICY_CANONICAL_ROOT` until
-the host-local canonical policy layout is documented more fully.
-
-## Commands
-
-Run these from the repository root with the Luminal venv.
-
-General checks:
+### Run The CLI
 
 ```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pytest -q
-$VENV/bin/ruff check src tests
-$VENV/bin/black --check .
-$VENV/bin/mypy src
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pw-policy doctor
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pw-policy validate
 ```
 
-CLI help:
+Serve the browser app:
 
 ```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pw-policy --help
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pw-policy serve
 ```
 
-Doctor:
+Or choose a specific port in the supported `8000-8099` range:
 
 ```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pw-policy doctor
-$VENV/bin/pw-policy doctor --root /path/to/policies
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pw-policy serve --port 8040
 ```
 
-Behavior:
+## Runtime Conventions
 
-- scans the resolved canonical policy root
-- prints compact directory/artifact counts
-- reports validation summary counts
-- exits non-zero on validation or path-resolution failure
+`pw-policy serve` binds to `127.0.0.1` by default and auto-selects an available
+port in `8000-8099` unless `--port` or `PW_POLICY_DEFAULT_PORT` is supplied.
 
-Validate:
+The workbench can operate in two broad modes:
+
+- local validation against a policy tree on disk
+- live mud-server-backed workflows using explicit API base URLs and a valid
+  mud-server session
+
+Useful environment variables in the current codebase include:
+
+- `PW_POLICY_CANONICAL_ROOT`
+- `PW_POLICY_DEV_MUD_API_BASE_URL`
+- `PW_POLICY_PROD_MUD_API_BASE_URL`
+- `PW_POLICY_MUD_API_BASE_URL`
+- `PW_POLICY_MUD_SESSION_ID`
+- `PW_POLICY_DEFAULT_PORT`
+
+## Validation And Development
+
+Run the main checks from the repo root:
 
 ```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pw-policy validate
-$VENV/bin/pw-policy validate --root /path/to/policies
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pytest -q
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/ruff check src tests
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/black --check .
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/mypy src
+/srv/work/pipeworks/venvs/pw-policy-workbench/bin/pw-policy --help
 ```
 
-Behavior:
+## Deployment Assets
 
-- emits deterministic line-oriented issue output
-- ends with stable summary counts
-- is suitable for both human review and automation
+This repo ships deployment examples under `deploy/`, including checked-in nginx
+and systemd examples. Treat those as templates, not as machine-specific
+documentation.
 
-Serve:
+## Documentation
 
-```bash
-VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
-
-$VENV/bin/pw-policy serve
-$VENV/bin/pw-policy serve --host 127.0.0.1 --port 8010
-$VENV/bin/pw-policy serve --host 0.0.0.0 --port 8010
-```
-
-Behavior:
-
-- runs the FastAPI workbench through Uvicorn
-- binds to `127.0.0.1` by default
-- chooses an available port in `8000-8099`
-- honors `PW_POLICY_DEFAULT_PORT` as a preferred port when set
-- use `--host 0.0.0.0` only for explicit ad hoc LAN/debug exposure
-
-## Luminal Service
-
-The workbench now has a real Luminal browser surface:
-
-- hostname: `https://policies.pipeworks.luminal.local/`
-- systemd unit: `pipeworks-policy-workbench.service`
-- backend bind: `127.0.0.1:8040`
-- nginx front door: `/etc/nginx/sites-available/policies.pipeworks.luminal.local`
-- host env file: `/etc/pipeworks/policy-workbench/policy-workbench.env`
-
-Checked-in service templates live in:
-
-- `deploy/systemd/pipeworks-policy-workbench.service`
-- `deploy/nginx/policies.pipeworks.luminal.local`
-- `deploy/etc/pipeworks/policy-workbench/policy-workbench.env.example`
-
-The current service posture is intentionally narrow:
-
-- nginx and the HTTPS hostname are the canonical browser entrypoint
-- the backend stays localhost-bound
-- unauthenticated browser access is expected to render the shell but block
-  policy inventory and save workflows until a valid mud-server admin or
-  superuser session is established
-
-## Safety Boundaries
-
-- Keep runtime-mode selection explicit so users can tell which mud-server
-  target is active.
-- Preserve clear auth/permission behavior for mud-server API failures.
-- Keep the backend localhost-bound in steady state on Luminal.
-- Do not blur the workbench surface into the existing mud-server admin surface.
-- Do not assume browser reachability changes the upstream authority boundary:
-  mud-server still owns canonical runtime policy behavior.
-
-## Current Documentation Position
-
-The repo is now documented around the shared-host Luminal model, the live
-`policies.pipeworks.luminal.local` service surface, and the API-first
-canonical authoring model.
-
-Related Luminal documentation:
-
-- [PipeWorks on Luminal](/home/aapark/dotfiles/docs/project_maps/pipeworks.md)
-- [Luminal PipeWorks Policy Workbench Host Preparation](/home/aapark/dotfiles/docs/moc/luminal_pipeworks_policy_workbench_host_preparation.md)
+The repo is primarily self-documented through code, tests, and deploy assets.
+Deeper operational detail should live in runbooks or service docs rather than
+in this public-facing README.
 
 ## License
 
-GPL-3.0-or-later. See `LICENSE`.
+[GPL-3.0-or-later](LICENSE)
