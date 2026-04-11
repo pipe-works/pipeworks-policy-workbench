@@ -13,6 +13,26 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.24](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.23...pipeworks-policy-workbench-v0.1.24) (2026-04-11)
+
+
+### Features
+
+* add luminal policy workbench service templates ([1560f36](https://github.com/pipe-works/pipeworks-policy-workbench/commit/1560f364a1d47419a96836fbf3499425038a0faa))
+* add luminal policy workbench service templates ([b5e7013](https://github.com/pipe-works/pipeworks-policy-workbench/commit/b5e7013acde83a22bc8eb22eb25b58d603ef4d8b))
+
+
+### Documentation
+
+* align repo guidance with luminal venv model ([a6335e0](https://github.com/pipe-works/pipeworks-policy-workbench/commit/a6335e047c66d4f50cf7a24e9401a2664d5343d2))
+* align repo guidance with luminal venv model ([96ef15c](https://github.com/pipe-works/pipeworks-policy-workbench/commit/96ef15c03eaa761bf308d61b3a157e3c9c48c4b9))
+
+
+### Internal Changes
+
+* remove legacy sync workflow and align luminal setup ([b388697](https://github.com/pipe-works/pipeworks-policy-workbench/commit/b38869788232ddac6fa9b9fb170ff8dc8c2950dc))
+* remove legacy sync workflow and align luminal setup ([5441e03](https://github.com/pipe-works/pipeworks-policy-workbench/commit/5441e037b3f7dd659b991d85bc8b8c47574cb198))
+
 ## [0.1.23](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.22...pipeworks-policy-workbench-v0.1.23) (2026-03-15)
 
 
