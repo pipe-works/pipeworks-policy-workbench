@@ -781,6 +781,52 @@ def test_api_first_proxy_endpoints_map_auth_failures_to_401_and_403(
     assert "Invalid or expired session" in unauthenticated_response.json()["detail"]
 
 
+def test_proxy_401_clears_runtime_session_cookie_and_drops_record(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A mud-server 'Invalid or expired session' must drop the cached browser session.
+
+    Otherwise the workbench keeps forwarding the same dead session_id on every
+    click and the auth badge stays stuck on a stale 'authorized' reading.
+    """
+
+    client, _, _ = _build_client(tmp_path)
+    _set_server_dev_mode(client)
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_runtime_login_payload",
+        lambda **_kwargs: RuntimeLoginResponse(
+            success=True,
+            session_id="cached-session-xyz",
+            role="admin",
+            available_worlds=[],
+            detail="Authenticated as admin/superuser.",
+        ),
+    )
+    login_response = client.post(
+        "/api/runtime-login",
+        json={"username": "admin-user", "password": "secret"},
+    )
+    assert login_response.status_code == 200
+    assert client.cookies.get("pw_policy_runtime_session")
+
+    monkeypatch.setattr(
+        web_app_module,
+        "build_policy_object_detail_payload",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            ValueError("Mud API request failed: Invalid or expired session")
+        ),
+    )
+
+    detail_response = client.get("/api/policies/clothing_block:image.blocks.x:y")
+    assert detail_response.status_code == 401
+    set_cookie_header = detail_response.headers.get("set-cookie", "")
+    assert "pw_policy_runtime_session=" in set_cookie_header
+    assert "Max-Age=0" in set_cookie_header or "expires=" in set_cookie_header.lower()
+    assert client.cookies.get("pw_policy_runtime_session") in (None, "")
+
+
 def test_api_first_proxy_endpoints_return_503_when_runtime_mode_unavailable(
     tmp_path: Path,
     monkeypatch,

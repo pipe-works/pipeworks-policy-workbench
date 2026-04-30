@@ -1,6 +1,6 @@
 import { THEME_STORAGE_KEY } from "./constants.js";
 import { dom } from "./dom.js";
-import { configureRuntime } from "./runtime.js";
+import { applyRuntimeAuthState, configureRuntime } from "./runtime.js";
 import { configureInventory } from "./inventory.js";
 import { configureEditorActions } from "./editor_actions.js";
 import { configureRuntimeSession } from "./runtime_session.js";
@@ -55,6 +55,17 @@ async function fetchJson(url, options = {}) {
       detail = payload.detail || detail;
     } catch {
       // Use fallback detail.
+    }
+    if (response.status === 401) {
+      // The backend has already cleared the session record + cookie on the
+      // wire; flip local auth state immediately so badges and disabled
+      // controls reflect reality without waiting for the next /runtime-auth
+      // probe.
+      applyRuntimeAuthState({
+        status: "unauthenticated",
+        access_granted: false,
+        detail,
+      });
     }
     throw new Error(detail);
   }

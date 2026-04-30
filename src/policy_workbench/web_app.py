@@ -234,29 +234,94 @@ def create_web_app(
             return 401
         return 400
 
-    def _raise_mud_service_http_error(exc: ValueError | OSError) -> NoReturn:
+    @dataclass(slots=True)
+    class _AuthSessionContext:
+        """Bundle request/response/cookie token for per-request session cleanup."""
+
+        request: Request
+        response: Response
+        cookie_token: str | None
+
+    def _build_clear_runtime_session_cookie_header(*, request: Request) -> str:
+        """Return a Set-Cookie header value that clears the runtime session cookie.
+
+        Using a header attached to the HTTPException is the only reliable way to
+        deliver cookie state changes alongside an error response — FastAPI's
+        default exception handler discards mutations made to the injected
+        ``Response`` object.
+        """
+        helper = Response()
+        helper.delete_cookie(
+            key=_RUNTIME_SESSION_COOKIE_NAME,
+            httponly=True,
+            secure=_runtime_cookie_secure(request),
+            samesite="strict",
+            path="/",
+        )
+        for header_name, header_value in helper.raw_headers:
+            if header_name.lower() == b"set-cookie":
+                return header_value.decode("latin-1")
+        return ""
+
+    def _invalidate_runtime_session_on_auth_failure(
+        *,
+        detail: str,
+        auth_ctx: _AuthSessionContext | None,
+    ) -> dict[str, str] | None:
+        """Drop cached browser-session record when mud-server reports auth failure.
+
+        Without this the workbench keeps forwarding a session_id that mud-server
+        has already invalidated, so every subsequent click repeats the same 401
+        and the auth badge stays stuck on a stale "authorized" reading.
+        """
+        if auth_ctx is None:
+            return None
+        if _status_code_for_mud_api_error(detail) != 401:
+            return None
+        if auth_ctx.cookie_token:
+            _pop_runtime_browser_session_by_token(auth_ctx.cookie_token)
+        clear_header = _build_clear_runtime_session_cookie_header(request=auth_ctx.request)
+        return {"set-cookie": clear_header} if clear_header else None
+
+    def _raise_mud_service_http_error(
+        exc: ValueError | OSError,
+        *,
+        auth_ctx: _AuthSessionContext | None = None,
+    ) -> NoReturn:
         """Raise one normalized HTTPException for mud-service failures."""
 
         detail = str(exc)
+        cleanup_headers = _invalidate_runtime_session_on_auth_failure(
+            detail=detail, auth_ctx=auth_ctx
+        )
         raise HTTPException(
             status_code=_status_code_for_mud_api_error(detail),
             detail=detail,
+            headers=cleanup_headers,
         ) from exc
 
-    def _run_mud_service(call: Callable[[], _ResponseT]) -> _ResponseT:
+    def _run_mud_service(
+        call: Callable[[], _ResponseT],
+        *,
+        auth_ctx: _AuthSessionContext | None = None,
+    ) -> _ResponseT:
         """Execute one mud-service call and normalize ValueError/OSError mapping."""
 
         try:
             return call()
         except (ValueError, OSError) as exc:
-            _raise_mud_service_http_error(exc)
+            _raise_mud_service_http_error(exc, auth_ctx=auth_ctx)
 
-    def _run_server_api_route(call: Callable[[str], _ResponseT]) -> _ResponseT:
+    def _run_server_api_route(
+        call: Callable[[str], _ResponseT],
+        *,
+        auth_ctx: _AuthSessionContext | None = None,
+    ) -> _ResponseT:
         """Resolve active server URL and execute one mud-server-backed route action."""
 
         try:
             server_api_url = require_server_api_url()
-            return _run_mud_service(lambda: call(server_api_url))
+            return _run_mud_service(lambda: call(server_api_url), auth_ctx=auth_ctx)
         except RuntimeModeUnavailableError as exc:
             # Fail closed when runtime mode does not provide a server URL.
             # Returning 503 keeps callers from mistaking environment/runtime
@@ -412,15 +477,19 @@ def create_web_app(
     @app.get("/api/policy-types", response_model=PolicyTypeOptionsResponse)
     async def api_policy_types(
         request: Request,
+        response: Response,
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy-type options for inventory filtering."""
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_mud_service(
             lambda: build_policy_type_options_payload(
@@ -428,22 +497,27 @@ def create_web_app(
                 active_server_url=state.active_server_url,
                 session_id_override=resolved_session_id,
                 base_url_override=state.active_server_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/policy-namespaces", response_model=PolicyTypeOptionsResponse)
     async def api_policy_namespaces(
         request: Request,
+        response: Response,
         policy_type: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy namespace options for inventory filtering."""
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_mud_service(
             lambda: build_policy_namespace_options_payload(
@@ -452,21 +526,26 @@ def create_web_app(
                 session_id_override=resolved_session_id,
                 policy_type=policy_type,
                 base_url_override=state.active_server_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/policy-statuses", response_model=PolicyTypeOptionsResponse)
     async def api_policy_statuses(
         request: Request,
+        response: Response,
         session_id: str | None = Query(default=None),
     ) -> PolicyTypeOptionsResponse:
         """Return canonical policy status options for inventory filtering."""
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_mud_service(
             lambda: build_policy_status_options_payload(
@@ -474,12 +553,14 @@ def create_web_app(
                 active_server_url=state.active_server_url,
                 session_id_override=resolved_session_id,
                 base_url_override=state.active_server_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/policies", response_model=PolicyInventoryResponse)
     async def api_policies(
         request: Request,
+        response: Response,
         policy_type: str | None = Query(default=None),
         namespace: str | None = Query(default=None),
         status: str | None = Query(default=None),
@@ -488,11 +569,14 @@ def create_web_app(
         """Return API-first policy inventory list from mud-server canonical API."""
 
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_server_api_route(
             lambda server_api_url: build_policy_inventory_payload(
@@ -501,12 +585,14 @@ def create_web_app(
                 status=status,
                 session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/policies/{policy_id}", response_model=PolicyObjectDetailResponse)
     async def api_policy_detail(
         request: Request,
+        response: Response,
         policy_id: str,
         variant: str | None = Query(default=None),
         session_id: str | None = Query(default=None),
@@ -514,11 +600,14 @@ def create_web_app(
         """Return one policy object detail payload from mud-server canonical API."""
 
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_server_api_route(
             lambda server_api_url: build_policy_object_detail_payload(
@@ -526,12 +615,14 @@ def create_web_app(
                 variant=variant,
                 session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/policy-activations-live", response_model=PolicyActivationScopeResponse)
     async def api_policy_activations_live(
         request: Request,
+        response: Response,
         scope: str = Query(min_length=1),
         effective: bool = Query(default=True),
         session_id: str | None = Query(default=None),
@@ -539,11 +630,14 @@ def create_web_app(
         """Return scoped activation mappings from mud-server canonical API."""
 
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_server_api_route(
             lambda server_api_url: build_policy_activation_scope_payload(
@@ -551,21 +645,26 @@ def create_web_app(
                 effective=effective,
                 session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.post("/api/policy-activation-set", response_model=PolicyActivationSetResponse)
     async def api_policy_activation_set(
         request: Request,
+        response: Response,
         payload: PolicyActivationSetRequest,
     ) -> PolicyActivationSetResponse:
         """Set one activation pointer through mud-server canonical policy activation API."""
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=payload.session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_server_api_route(
             lambda server_api_url: build_policy_activation_set_payload(
@@ -576,7 +675,8 @@ def create_web_app(
                 activated_by=payload.activated_by,
                 session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get(
@@ -585,23 +685,28 @@ def create_web_app(
     )
     async def api_policy_publish_run(
         request: Request,
+        response: Response,
         publish_run_id: int,
         session_id: str | None = Query(default=None),
     ) -> PolicyPublishRunProxyResponse:
         """Return one publish run payload from mud-server canonical publish API."""
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
         return _run_server_api_route(
             lambda server_api_url: build_policy_publish_run_payload(
                 publish_run_id=publish_run_id,
                 session_id_override=resolved_session_id,
                 base_url_override=server_api_url,
-            )
+            ),
+            auth_ctx=auth_ctx,
         )
 
     @app.get("/api/tree")
@@ -643,6 +748,7 @@ def create_web_app(
     @app.post("/api/policy-validate", response_model=PolicyValidateResponse)
     async def api_policy_validate(
         request: Request,
+        response: Response,
         payload: PolicyValidateRequest,
     ) -> PolicyValidateResponse:
         """Validate one authorable policy object without writing/upserting it."""
@@ -654,11 +760,14 @@ def create_web_app(
             variant=payload.variant,
         )
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=payload.session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
 
         def _build_validate_response(server_api_url: str) -> PolicyValidateResponse:
@@ -682,10 +791,14 @@ def create_web_app(
                 is_valid=True,
             )
 
-        return _run_server_api_route(_build_validate_response)
+        return _run_server_api_route(_build_validate_response, auth_ctx=auth_ctx)
 
     @app.post("/api/policy-save", response_model=PolicySaveResponse)
-    async def api_policy_save(request: Request, payload: PolicySaveRequest) -> PolicySaveResponse:
+    async def api_policy_save(
+        request: Request,
+        response: Response,
+        payload: PolicySaveRequest,
+    ) -> PolicySaveResponse:
         """Save one authorable policy object through mud-server APIs.
 
         Flow:
@@ -702,11 +815,14 @@ def create_web_app(
             variant=payload.variant,
         )
         state = get_runtime_mode()
-        resolved_session_id, _, _ = _resolve_request_session_id(
+        resolved_session_id, _, cookie_token = _resolve_request_session_id(
             request=request,
             mode_key=state.mode_key,
             server_url=state.active_server_url,
             explicit_session_id=payload.session_id,
+        )
+        auth_ctx = _AuthSessionContext(
+            request=request, response=response, cookie_token=cookie_token
         )
 
         def _build_save_response(server_api_url: str) -> PolicySaveResponse:
@@ -738,6 +854,6 @@ def create_web_app(
                 activation_audit_event_id=result.activation_audit_event_id,
             )
 
-        return _run_server_api_route(_build_save_response)
+        return _run_server_api_route(_build_save_response, auth_ctx=auth_ctx)
 
     return app
