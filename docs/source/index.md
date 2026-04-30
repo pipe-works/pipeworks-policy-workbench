@@ -14,6 +14,7 @@ and the agent-facing [AGENTS.md](https://github.com/pipe-works/pipeworks-policy-
 :caption: Contents
 
 overview
+policy_types
 runtime_modes
 deploy
 api/index
