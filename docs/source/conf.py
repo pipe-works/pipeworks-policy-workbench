@@ -31,7 +31,13 @@ extensions = [
     "sphinx.ext.todo",
     "sphinx.ext.viewcode",
     "myst_parser",
+    "sphinxcontrib.mermaid",
 ]
+
+# Render Mermaid diagrams as inline SVG so RTD/PDF builds work without a
+# headless browser. The default ("raw") relies on a client-side mermaid.js
+# bundle, which doesn't help non-HTML formats.
+mermaid_output_format = "raw"
 
 myst_enable_extensions = [
     "colon_fence",
