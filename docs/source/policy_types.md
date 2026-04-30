@@ -39,7 +39,7 @@ references on save (`_normalize_reference_entries`).
 | `image_block` | text or object with `text` field | Reusable image-generation block snippets. Same text-or-object shape as `prompt`. |
 | `species_block` | YAML structured | Canonical species block content under `image/blocks/species`. |
 | `clothing_block` | structured object | Authored as YAML/JSON object content. |
-| `tone_profile` | JSON object | Strict JSON object payload. |
+| `tone_profile` | JSON object with `prompt_block` field | Strict JSON object payload; `prompt_block` must be a non-empty string and is the prompt-injectable text consumed by image-generator. The field name differs from other Layer 1 atomic types (which use `text`) to match the canonical mud-server schema and its renderer. |
 
 ## Layer 2 — composite
 
