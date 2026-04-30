@@ -480,6 +480,9 @@ def _build_policy_content_from_raw(
             raise ValueError("tone_profile raw_content must be valid JSON object text.") from exc
         if not isinstance(parsed, dict):
             raise ValueError("tone_profile raw_content must be a JSON object.")
+        prompt_block = parsed.get("prompt_block")
+        if not isinstance(prompt_block, str) or not prompt_block.strip():
+            raise ValueError("tone_profile content.prompt_block must be a non-empty string.")
         return cast(dict[str, object], parsed)
 
     if selector.policy_type == "descriptor_layer":

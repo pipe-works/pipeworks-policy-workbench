@@ -499,6 +499,31 @@ def test_build_policy_content_from_raw_accepts_tone_profile_object_payload() -> 
     assert content == {"prompt_block": "Etched metallic texture."}
 
 
+def test_build_policy_content_from_raw_rejects_tone_profile_without_prompt_block() -> None:
+    """Tone-profile builder should reject payloads missing the canonical prompt_block field."""
+    selector = PolicySelector(
+        policy_type="tone_profile",
+        namespace="image.tone_profiles",
+        policy_key="ledger_engraving",
+        variant="v1",
+    )
+    with pytest.raises(ValueError, match="prompt_block must be a non-empty string"):
+        policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+            selector=selector,
+            raw_content='{"name":"ledger_engraving_v1"}',
+        )
+    with pytest.raises(ValueError, match="prompt_block must be a non-empty string"):
+        policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+            selector=selector,
+            raw_content='{"prompt_block":"   "}',
+        )
+    with pytest.raises(ValueError, match="prompt_block must be a non-empty string"):
+        policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+            selector=selector,
+            raw_content='{"prompt_block": 42}',
+        )
+
+
 def test_save_policy_variant_from_raw_content_supports_image_block_text(monkeypatch) -> None:
     """Generic save helper should serialize image-block text into canonical content payload."""
     selector = PolicySelector(
