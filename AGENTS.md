@@ -24,7 +24,7 @@ Mandatory requirements:
 Pipeworks Policy Workbench is a local authoring and operations surface for
 canonical policy work against mud-server APIs.
 
-The repository currently contains two tightly related surfaces:
+The repository currently contains three tightly related surfaces:
 
 - a CLI exposed as `pw-policy`
 - a FastAPI web application used for interactive policy authoring and runtime
@@ -44,37 +44,69 @@ host topology definition by itself. Its concrete responsibilities are:
 Primary package layout under `src/policy_workbench/`:
 
 - `cli.py`
-  - top-level argument parsing for `doctor`, `validate`, and `serve`
+  - thin top-level argument parser and dispatch for `doctor`, `validate`, and
+    `serve`
+- `commands/`
+  - `doctor.py`, `validate.py` — command implementations kept out of `cli.py`
 - `server.py`
-  - Uvicorn startup, port selection, and fallback ASGI app behavior
+  - Uvicorn startup, deterministic port selection in `8000-8099`, log-prefix
+    configuration, and fallback ASGI app behavior
 - `web_app.py`
   - FastAPI app factory, HTML routes, API routes, and browser session cookie
     handling
 - `runtime_mode.py`
-  - active mud-server mode selection and URL override handling
+  - `server_dev`/`server_prod` profile selection, in-memory URL overrides, and
+    env-driven defaults
 - `policy_authoring.py`
   - save/validate authoring helpers and runtime config resolution
 - `mud_api_client.py` and `mud_api_runtime.py`
   - mud-server authentication and policy API interactions
-- `web_*services.py` and `web_models.py`
-  - web-route payload shaping and response models
+- Web service split:
+  - `web_services.py` — shared web-route helpers
+  - `web_diagnostics_services.py` — doctor/diagnostics-style endpoints
+  - `web_local_policy_metadata.py` — local tree metadata for the UI
+  - `web_policy_proxy_services.py` — server-backed policy fetch/save proxy
+  - `web_runtime_services.py` — runtime-mode and session endpoints
+  - `web_source_services.py` — source-mode listing and selection
+  - `web_models.py` — Pydantic payload and response shapes
 - `tree_model.py`, `validators.py`, `extractors.py`, `models.py`
-  - local policy tree scanning and validation support
+  - local policy tree scanning, validation, and policy data shapes
 - `pathing.py`
-  - canonical root/path resolution logic
+  - canonical root and path resolution logic
 - `env_loader.py`
   - lightweight `.env` loading without extra dependency requirements
 
+Frontend assets:
+
+- `src/policy_workbench/templates/index.html`
+- `src/policy_workbench/static/`
+  - `pipe-works-base.css`, `workbench.css`, `workbench.js`
+  - `workbench/` ES-module split — `app.js`, `boot.js`, `constants.js`,
+    `dom.js`, `editor_actions.js`, `runtime.js`, `runtime_session.js`,
+    `state.js`, `tabs.js`, plus `inventory/` (activation actions/scope/
+    table/view, context, policy filters, policy inventory, policy object,
+    policy selector, unauthorized state, world scope)
+- The frontend has no bundler or build step.
+
+Tests under `tests/`:
+
+- `conftest.py` — shared fixtures
+- `unit/` — coverage across CLI, commands, env loader, extractors, frontend
+  contract, MUD API client/runtime, packaging metadata, pathing, policy
+  authoring, runtime mode, server, tree model, validators, and each
+  `web_*_services` module plus the broader `web_api`
+
 Supporting repo layout:
 
-- `tests/unit/`
-  - unit coverage across CLI, runtime mode, web services, validation, and
-    packaging behavior
-- `src/policy_workbench/templates/` and `src/policy_workbench/static/`
-  - UI template and browser assets
 - `deploy/`
-  - checked-in Luminal service templates for systemd, nginx, and host env
-    configuration
+  - checked-in Luminal templates for systemd, nginx, and host env
+- `data/worlds/`
+  - sample/canonical world data used by tests and local flows
+- `tools/`
+  - `compliance_checker.py`, `large_files.sh` repo-maintenance helpers
+- `.pre-commit-config.yaml`
+  - org-wide formatting/linting hooks; install with
+    `$VENV/bin/pre-commit install`
 
 ## Environment
 
@@ -88,7 +120,8 @@ This repo now uses the Luminal host layout as its primary execution model.
 - localhost backend bind: `127.0.0.1:8040`
 - `.example.env` documents local runtime defaults for mud-server URLs and
   preferred serve port
-- `.env` is loaded automatically on CLI startup when present
+- `.env` is loaded automatically on CLI startup when present, but already-
+  exported environment variables take precedence
 
 Typical setup:
 
@@ -98,6 +131,9 @@ VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
 $VENV/bin/pip install -e ".[dev,docs]"
 cp .example.env .env
 ```
+
+Python `3.12` is required. `pyproject.toml` is the dependency authority and
+pins `black==26.1.0` org-wide.
 
 ## Commands
 
@@ -137,6 +173,11 @@ Current command behavior that matters:
   - supports `--host 0.0.0.0` only for explicit ad hoc exposure, not normal
     Luminal service posture
 
+Optional dev tooling shipped via `[dev]` extras: `bandit`, `codespell`,
+`pre-commit`, `build`, plus `types-PyYAML` for mypy. Pytest markers are
+declared in `pyproject.toml` (`unit`, `integration`, `slow`,
+`requires_model`).
+
 ## Luminal Service Shape
 
 The current Luminal service boundary for this repo is:
@@ -160,6 +201,16 @@ The current interactive runtime model is mud-server API first.
 - both modes resolve to explicit HTTP(S) mud-server base URLs
 - runtime URL defaults come from environment variables, then in-memory
   overrides set through the application
+- canonical env vars:
+  - `PW_POLICY_SOURCE_MODE` (active profile)
+  - `PW_POLICY_DEV_MUD_API_BASE_URL`
+  - `PW_POLICY_PROD_MUD_API_BASE_URL`
+  - `PW_POLICY_CANONICAL_ROOT` (for CLI validation flows)
+  - `PW_POLICY_DEFAULT_PORT` (preferred serve port)
+- legacy/companion env vars still accepted as fallback by `runtime_mode.py`:
+  `PW_POLICY_MUD_API_BASE_URL`, `PW_POLICY_LOCAL_MUD_API_BASE_URL`,
+  `PW_POLICY_REMOTE_DEV_MUD_API_BASE_URL`,
+  `PW_POLICY_REMOTE_PROD_MUD_API_BASE_URL`
 - the web app stores browser session bindings server-side and issues a hardened
   cookie to preserve that runtime session across refreshes
 - route behavior should keep auth and permission failures clearly separated
@@ -167,8 +218,8 @@ The current interactive runtime model is mud-server API first.
 
 ## Working Rules
 
-- Keep the CLI thin. Put behavior in dedicated modules rather than growing
-  `cli.py`.
+- Keep the CLI thin. Put behavior in `commands/` or other dedicated modules
+  rather than growing `cli.py`.
 - Preserve deterministic output for validation reporting. Downstream automation
   and tests depend on stable ordering and wording.
 - Keep runtime mode semantics explicit. Do not add hidden fallback behavior that
@@ -183,6 +234,12 @@ The current interactive runtime model is mud-server API first.
 - Treat `policies.pipeworks.luminal.local` as distinct from the existing
   mud-server admin and creator surfaces; do not silently reuse those trust
   boundaries.
+- Keep the web service split coherent. A new endpoint should land in the
+  `web_*_services.py` module that matches its concern (diagnostics, runtime,
+  source, policy proxy, local metadata) rather than accreting into
+  `web_services.py`.
+- Do not introduce a frontend bundler or build step; the workbench JS is
+  served as plain ES modules.
 
 ## Testing Expectations
 
@@ -193,6 +250,8 @@ The current interactive runtime model is mud-server API first.
   both happy path and failure boundaries.
 - When changing runtime-mode or auth behavior, verify status-code expectations
   remain stable.
+- When changing frontend contracts that the backend depends on, update
+  `tests/unit/test_frontend_contract.py`.
 
 Useful targeted commands:
 
@@ -202,11 +261,14 @@ VENV=/srv/work/pipeworks/venvs/pw-policy-workbench
 $VENV/bin/pytest tests/unit/test_cli.py -q
 $VENV/bin/pytest tests/unit/test_runtime_mode.py -q
 $VENV/bin/pytest tests/unit/test_web_api.py -q
+$VENV/bin/pytest tests/unit/test_web_runtime_services.py -q
+$VENV/bin/pytest tests/unit/test_web_policy_proxy_services.py -q
 ```
 
 ## GitHub and Commit Rules
 
-This repo uses conventional commits and release-please compatible metadata.
+This repo uses conventional commits and release-please compatible metadata
+(`release-please-config.json`, `.release-please-manifest.json`).
 
 - Use `feat:` for user-facing capabilities.
 - Use `fix:` for defect corrections.
@@ -226,8 +288,9 @@ Before PR creation or merge:
 
 - Keep this file aligned with the actual repo, not with older adjacent
   repositories or aspirational architecture.
-- If the Luminal host model changes, update README, AGENTS, and host-facing docs in the
-  same change rather than leaving environment guidance split across locations.
+- If the Luminal host model changes, update README, AGENTS, and host-facing
+  docs in the same change rather than leaving environment guidance split
+  across locations.
 - If the service topology changes later, update the checked-in `deploy/`
   templates and the host-facing docs in the same change rather than relying on
   host-only drift.
