@@ -13,6 +13,27 @@
 * remove mirror validation diagnostics UI wiring and backend response models from the web app
 * expanded Phase 5 hardening tests for packaging completeness, mud API transport error semantics, DB-first save/activation invariants, and deterministic hash/provenance stability
 
+## [0.1.25](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.24...pipeworks-policy-workbench-v0.1.25) (2026-05-02)
+
+
+### Features
+
+* **authoring:** require tone_profile prompt_block to mirror canonical schema ([#85](https://github.com/pipe-works/pipeworks-policy-workbench/issues/85)) ([bcd9697](https://github.com/pipe-works/pipeworks-policy-workbench/commit/bcd969752cb4fa5ba472b3d784e5daa67ab618aa))
+* **authoring:** support canonical `location` policy type ([9cb6466](https://github.com/pipe-works/pipeworks-policy-workbench/commit/9cb64668cd1445b1d1c6897400a3f11c44e75405))
+* **authoring:** support canonical `location` policy type ([20b2483](https://github.com/pipe-works/pipeworks-policy-workbench/commit/20b248341a043f37045321f3a8e37fa2f0995349))
+
+
+### Fixes
+
+* clear stale runtime session on mud-server 401 ([#82](https://github.com/pipe-works/pipeworks-policy-workbench/issues/82)) ([52f3ded](https://github.com/pipe-works/pipeworks-policy-workbench/commit/52f3dede150467c56a6ab98f168329c7dcc7101a))
+
+
+### Documentation
+
+* add policy types page with Mermaid relationship diagram ([#84](https://github.com/pipe-works/pipeworks-policy-workbench/issues/84)) ([976cb09](https://github.com/pipe-works/pipeworks-policy-workbench/commit/976cb09aa5b831a1e583689d4c09c25134ad9462))
+* bootstrap Sphinx documentation ([#83](https://github.com/pipe-works/pipeworks-policy-workbench/issues/83)) ([78d5c15](https://github.com/pipe-works/pipeworks-policy-workbench/commit/78d5c15bbb957a2de0c87bbdf69a663bfa2fd2e8))
+* refresh AGENTS.md to match current codebase ([#80](https://github.com/pipe-works/pipeworks-policy-workbench/issues/80)) ([d5ddc78](https://github.com/pipe-works/pipeworks-policy-workbench/commit/d5ddc7850e9bed18c46107903ca76fd81933c448))
+
 ## [0.1.24](https://github.com/pipe-works/pipeworks-policy-workbench/compare/pipeworks-policy-workbench-v0.1.23...pipeworks-policy-workbench-v0.1.24) (2026-04-11)
 
 
