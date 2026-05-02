@@ -467,6 +467,12 @@ def _build_policy_content_from_raw(
             policy_type=selector.policy_type,
         )
 
+    if selector.policy_type == "location":
+        return _build_text_like_policy_content(
+            raw_content=raw_content,
+            policy_type=selector.policy_type,
+        )
+
     if selector.policy_type == "clothing_block":
         return _parse_structured_object_from_raw(
             raw_content=raw_content,
@@ -512,8 +518,8 @@ def _build_policy_content_from_raw(
 
     raise ValueError(
         "Policy save currently supports only policy_type values: "
-        "'species_block', 'prompt', 'image_block', 'clothing_block', 'tone_profile', "
-        "'descriptor_layer', 'registry'."
+        "'species_block', 'prompt', 'image_block', 'location', 'clothing_block', "
+        "'tone_profile', 'descriptor_layer', 'registry'."
     )
 
 

@@ -64,7 +64,7 @@ const STRUCTURED_POLICY_TYPES = new Set([
   "registry",
 ]);
 
-const TEXT_OR_OBJECT_POLICY_TYPES = new Set(["prompt", "image_block"]);
+const TEXT_OR_OBJECT_POLICY_TYPES = new Set(["prompt", "image_block", "location"]);
 
 function setEditorLintStatus({ tone, message }) {
   if (!dom.editorLintStatus) {

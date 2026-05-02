@@ -614,6 +614,126 @@ def test_save_policy_variant_from_raw_content_supports_image_block_object(monkey
     }
 
 
+def test_build_policy_content_from_raw_accepts_location_text_payload() -> None:
+    """Location content builder should accept free-text raw content."""
+    content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+        selector=PolicySelector(
+            policy_type="location",
+            namespace="image.locations.environment",
+            policy_key="cozy_inn",
+            variant="v1",
+        ),
+        raw_content="  A warm timber-beamed inn lit by hearth firelight.  \n",
+    )
+    assert content == {"text": "A warm timber-beamed inn lit by hearth firelight."}
+
+
+def test_save_policy_variant_from_raw_content_supports_location_text(monkeypatch) -> None:
+    """Generic save helper should serialize location text into canonical content payload."""
+    selector = PolicySelector(
+        policy_type="location",
+        namespace="image.locations.environment",
+        policy_key="cozy_inn",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 21}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 1, "content_hash": "hash-location"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 1)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content="  A warm timber-beamed inn lit by hearth firelight.  \n",
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "location:image.locations.environment:cozy_inn"
+    assert result.policy_version == 1
+    assert result.content_hash == "hash-location"
+    assert result.validation_run_id == 21
+    assert captured_payloads[0]["content"] == {
+        "text": "A warm timber-beamed inn lit by hearth firelight."
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "A warm timber-beamed inn lit by hearth firelight."
+    }
+
+
+def test_save_policy_variant_from_raw_content_supports_location_object(monkeypatch) -> None:
+    """Location save should preserve canonical object payload when provided."""
+    selector = PolicySelector(
+        policy_type="location",
+        namespace="image.locations.environment",
+        policy_key="cozy_inn",
+        variant="v1",
+    )
+    config = MudPolicyRuntimeConfig(base_url="http://mud.local:8000", session_id="s-1")
+
+    captured_payloads: list[dict[str, object | None]] = []
+
+    def _fake_request_json(**kwargs):
+        captured_payloads.append(kwargs.get("json_payload"))
+        if "/validate" in kwargs["url"]:
+            return {"is_valid": True, "validation_run_id": 22}
+        if "/variants/" in kwargs["url"]:
+            return {"policy_version": 2, "content_hash": "hash-location-object"}
+        raise AssertionError(f"Unexpected URL: {kwargs['url']}")  # pragma: no cover
+
+    monkeypatch.setattr(policy_authoring, "_request_json", _fake_request_json)
+    monkeypatch.setattr(policy_authoring, "_resolve_next_policy_version", lambda **kwargs: 2)
+
+    result = policy_authoring.save_policy_variant_from_raw_content(
+        selector=selector,
+        raw_content='{"text":"  A warm timber-beamed inn.  ","time_of_day":"evening"}',
+        schema_version="1.0",
+        status="candidate",
+        activate=False,
+        world_id=None,
+        client_profile=None,
+        actor="tester",
+        runtime_config=config,
+    )
+    assert result.policy_id == "location:image.locations.environment:cozy_inn"
+    assert result.policy_version == 2
+    assert captured_payloads[0]["content"] == {
+        "text": "A warm timber-beamed inn.",
+        "time_of_day": "evening",
+    }
+    assert captured_payloads[1]["content"] == {
+        "text": "A warm timber-beamed inn.",
+        "time_of_day": "evening",
+    }
+
+
+def test_build_policy_content_from_raw_rejects_location_non_string_text() -> None:
+    """Location content builder should reject object payloads where text is not a string."""
+    with pytest.raises(ValueError, match="location content.text must be a string"):
+        policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
+            selector=PolicySelector(
+                policy_type="location",
+                namespace="image.locations.environment",
+                policy_key="cozy_inn",
+                variant="v1",
+            ),
+            raw_content='{"text":123}',
+        )
+
+
 def test_build_policy_content_from_raw_accepts_clothing_block_object_payload() -> None:
     """Clothing-block content builder should preserve structured object payloads."""
     content = policy_authoring._build_policy_content_from_raw(  # noqa: SLF001
