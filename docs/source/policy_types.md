@@ -12,6 +12,7 @@ graph LR
         direction TB
         prompt["prompt<br/>text"]
         image_block["image_block<br/>text or object"]
+        location["location<br/>text or object"]
         species_block["species_block<br/>YAML"]
         clothing_block["clothing_block<br/>structured object"]
         tone_profile["tone_profile<br/>JSON"]
@@ -37,6 +38,7 @@ references on save (`_normalize_reference_entries`).
 | --- | --- | --- |
 | `prompt` | text or object with `text` field | Used by image generation prompts. Accepts free text or YAML/JSON with a `text` key. |
 | `image_block` | text or object with `text` field | Reusable image-generation block snippets. Same text-or-object shape as `prompt`. |
+| `location` | text or object with `text` field | Environmental flavor descriptions ("a cozy inn", "a busy quayside") for image generation. Stateless and decoupled from world topology — locations carry no exits, items, or mud mechanics. Same text-or-object shape as `prompt` and `image_block`. |
 | `species_block` | YAML structured | Canonical species block content under `image/blocks/species`. |
 | `clothing_block` | structured object | Authored as YAML/JSON object content. |
 | `tone_profile` | JSON object with `prompt_block` field | Strict JSON object payload; `prompt_block` must be a non-empty string and is the prompt-injectable text consumed by image-generator. The field name differs from other Layer 1 atomic types (which use `text`) to match the canonical mud-server schema and its renderer. |

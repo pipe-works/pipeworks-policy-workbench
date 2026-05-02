@@ -2,6 +2,7 @@ const AUTHORABLE_POLICY_TYPES = new Set([
   "species_block",
   "prompt",
   "image_block",
+  "location",
   "clothing_block",
   "tone_profile",
   "descriptor_layer",
